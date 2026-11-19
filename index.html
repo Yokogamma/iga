@@ -1,0 +1,1459 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Богатырь — прототип</title>
+<link href="https://fonts.googleapis.com/css2?family=Ruslan+Display&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #b9c2cc; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: #3a2a17;
+         -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+  .panel { position: fixed; background: rgba(247, 236, 208, .94); border: 2px solid #8a6a3a;
+           border-radius: 12px; box-shadow: 0 2px 8px rgba(40, 30, 10, .25); }
+  #hud { top: 10px; left: 10px; padding: 7px 11px 8px; pointer-events: none; font-size: 13px; line-height: 1.45; }
+  #hud h1 { font-family: "Ruslan Display", Georgia, serif; font-weight: 400; font-size: 18px;
+            margin: 0 0 1px; color: #8f1d14; }
+  #hud b { font-weight: 700; }
+  button { font: inherit; color: #3a2a17; -webkit-tap-highlight-color: transparent; }
+  #toggle { top: 10px; right: 10px; padding: 0 14px; height: 46px; font-weight: 700; font-size: 14px; }
+  #bar { position: fixed; left: 8px; right: 8px; bottom: 14px; display: flex; gap: 8px; }
+  #bar { gap: 6px; }
+  #bar button { position: static; flex: 1; height: 52px; font-size: 13px; font-weight: 700; padding: 0 2px; }
+  #choose { left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 14px; width: min(300px, 84vw); text-align: center; font-size: 14px; display: none; z-index: 5; }
+  #choose button { position: static; display: block; width: 100%; height: 46px; margin-top: 8px; font-weight: 700; font-size: 14px; }
+  #bar button small { display: block; font-weight: 500; font-size: 11px; color: #6a5433; }
+  #bar button.on { background: #8f1d14; color: #fff; border-color: #5c120c; }
+  #bar button.on small { color: #f3d9c9; }
+  #tip { left: 50%; bottom: 76px; transform: translateX(-50%); padding: 8px 14px; font-size: 13px;
+         max-width: 88vw; text-align: center; pointer-events: none; transition: opacity .4s; }
+  #tip.hide { opacity: 0; }
+  #toast { left: 50%; top: 104px; transform: translate(-50%, -10px); padding: 8px 16px;
+           font-family: "Ruslan Display", Georgia, serif; font-size: 15px; color: #8f1d14; max-width: 86vw;
+           text-align: center; opacity: 0; transition: opacity .35s, transform .35s; pointer-events: none; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #newgame { left: 50%; bottom: 18px; transform: translateX(-50%); padding: 0 16px; height: 46px;
+             font-size: 13px; font-weight: 600; display: none; }
+  body.map #bar, body.map #tip, body.map #choose, body.map #confirm { display: none !important; }
+  #confirm { left: 8px; right: 8px; bottom: 76px; padding: 10px; display: none; font-size: 14px; text-align: center; }
+  #confirm .row { display: flex; gap: 8px; margin-top: 8px; }
+  #confirm button { position: static; flex: 1; height: 46px; font-weight: 700; font-size: 14px; }
+  #confirm #cf-yes { background: #8f1d14; color: #fff; border-color: #5c120c; }
+  body.map #newgame { display: block; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud" class="panel">
+  <h1>Богатырь</h1>
+  <div>Посёлки: <b id="h-v">0/0</b></div>
+  <div id="h-h">Людей нет</div>
+  <div>Дрова: <b id="h-w">0</b></div>
+</div>
+<button id="toggle" class="panel">Карта</button>
+<div id="toast" class="panel"></div>
+<div id="tip" class="panel">Коснись земли — богатырь поедет. Заедь в посёлок, чтобы поставить флаг.</div>
+<div id="bar">
+  <button class="panel" data-mode="chop">Рубить лес<small>укажи лес</small></button>
+  <button class="panel" data-mode="camp">Лагерь<small>8 дров</small></button>
+  <button class="panel" data-mode="bridge">Мост<small>5 дров</small></button>
+  <button class="panel" data-mode="upgrade">Улучшить<small>10 дров</small></button>
+</div>
+<button id="newgame" class="panel">Новая игра</button>
+<div id="confirm" class="panel"><div id="cf-t"></div><div class="row"><button class="panel" id="cf-no"></button><button class="panel" id="cf-yes"></button></div></div>
+<div id="choose" class="panel"><div id="choose-t"></div><button class="panel" id="ch1"></button><button class="panel" id="ch2"></button><button class="panel" id="ch0">Отмена</button></div>
+
+<script>
+(function () {
+  'use strict';
+  var N = 48, TS = 40, SS = 4, PADS = 4, GW = N * SS + PADS * 2;
+  var REVEAL = 3.6, SPEED = 3.3, HSPEED = 2.4;
+  var MEADOW = 0, FIELD = 1, FOREST = 2, HILLS = 3, LAKE = 4, RIVER = 5;
+  var CAMP_NEED = 8, BRIDGE_NEED = 5, UPG_NEED = 10, CHOP_T = 3, BUILD_T = 8, SPAWN_T = 10, VCAP = 5, CAMP_CAP = 6;
+  var VSTORE = 6, CSTORE = 40;
+  var REGROW_T = 45, GROW_T = 25, ROT_T = 60, ROT_STEP = 15, FIRE_T = 8, FIRE_CHANCE = 0.004;
+  var TNAME = { chop: 'лесорубы', haul: 'носильщики', build: 'строители' };
+  var VNAMES = ['Берёзовка', 'Заречье', 'Дубки', 'Каменка', 'Лебяжье', 'Ольховка', 'Сосновка'];
+  var KEY = 'bogatyr-proto-v3';
+  var INK = '#5a3d22';
+
+  var canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+  var W, H, dpr;
+  var seed, biome, elev, road, bridge, trees, cleared, regrow, fogT, fogA;
+  var rivers, roads, villages, helpers, orders, sites, piles, camps, blotches;
+  var hero, target, P = {}, chunks = new Map(), CH = 384, fires = new Map(), warned = {}, plan = null, heroTap = false, campMask;
+  var view = 'world', mode = null, now = 0, dirtyHud = true, saveDirty = false;
+  var fogC = document.createElement('canvas'), fctx, fogImg;
+  fogC.width = N; fogC.height = N; fctx = fogC.getContext('2d'); fogImg = fctx.createImageData(N, N);
+  var G = window.G = { speed: 1 };
+
+  // ---------- утилиты ----------
+  function hash(x, y) {
+    var n = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed, 1442695041);
+    n = Math.imul(n ^ (n >>> 13), 1274126177); n ^= n >>> 16;
+    return (n >>> 0) / 4294967296;
+  }
+  function vnoise(x, y) {
+    var xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+    var u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+    var a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  }
+  function fbm(x, y) {
+    return (vnoise(x, y) + 0.5 * vnoise(x * 2 + 31, y * 2 + 17) + 0.25 * vnoise(x * 4 + 71, y * 4 + 53)) / 1.75;
+  }
+  function idx(x, y) { return y * N + x; }
+  function inb(x, y) { return x >= 0 && y >= 0 && x < N && y < N; }
+  function at(x, y) { return inb(x, y) ? biome[idx(x, y)] : LAKE; }
+  function isWater(x, y) { var b = at(x, y); return b === LAKE || b === RIVER; }
+  function walkable(i) { var b = biome[i]; return b !== LAKE && (b !== RIVER || bridge[i] === 1); }
+  function known(i) { return fogT[i] < 0.6; }
+  function speedMul(i) {
+    if (bridge[i]) return 1.3;
+    if (road[i]) return 1.7;
+    var b = biome[i];
+    return b === FOREST ? 0.62 : b === HILLS ? 0.55 : 1;
+  }
+  function jit(x, y) { return [(hash(x + 900, y + 901) - 0.5) * 0.44, (hash(x + 902, y + 903) - 0.5) * 0.44]; }
+  function wp(x, y) {
+    var i = idx(x, y);
+    if (road[i] || bridge[i] || biome[i] === RIVER) { var j = jit(x, y); return [x + 0.5 + j[0], y + 0.5 + j[1]]; }
+    return [x + 0.5, y + 0.5];
+  }
+
+  // ---------- поиск пути ----------
+  var gS = new Float32Array(N * N), came = new Int32Array(N * N), closed = new Uint8Array(N * N);
+  var DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+  function astar(sx, sy, gx, gy, pass, cost, goalAlways, noDiag) {
+    var start = idx(sx, sy), goal = idx(gx, gy);
+    if (start === goal) return [[gx, gy]];
+    gS.fill(Infinity); came.fill(-1); closed.fill(0);
+    var open = [start], best = start, bestH = Infinity, k;
+    gS[start] = 0;
+    function Hh(n) {
+      var dx = Math.abs(n % N - gx), dy = Math.abs(((n / N) | 0) - gy);
+      return (Math.max(dx, dy) + 0.414 * Math.min(dx, dy)) * 0.55;
+    }
+    while (open.length) {
+      var bi = 0, bf = Infinity;
+      for (k = 0; k < open.length; k++) { var fv = gS[open[k]] + Hh(open[k]); if (fv < bf) { bf = fv; bi = k; } }
+      var cur = open[bi]; open[bi] = open[open.length - 1]; open.pop();
+      if (closed[cur]) continue;
+      closed[cur] = 1;
+      if (cur === goal) break;
+      var hh = Hh(cur); if (hh < bestH) { bestH = hh; best = cur; }
+      var cx = cur % N, cy = (cur / N) | 0;
+      for (k = 0; k < (noDiag ? 4 : 8); k++) {
+        var dx = DIRS[k][0], dy = DIRS[k][1], nx = cx + dx, ny = cy + dy;
+        if (!inb(nx, ny)) continue;
+        var ni = idx(nx, ny);
+        if (closed[ni]) continue;
+        var isGoal = goalAlways && ni === goal;
+        if (!pass(ni) && !isGoal) continue;
+        if (k >= 4 && (!pass(idx(nx, cy)) || !pass(idx(cx, ny)) || isGoal && !pass(ni))) continue;
+        var ng = gS[cur] + cost(ni, cur) * (k >= 4 ? 1.414 : 1);
+        if (ng < gS[ni]) { gS[ni] = ng; came[ni] = cur; open.push(ni); }
+      }
+    }
+    var end = closed[goal] ? goal : (goalAlways ? -1 : best);
+    if (end < 0) return null;
+    var out = [];
+    while (end !== start && end >= 0) { out.push([end % N, (end / N) | 0]); end = came[end]; }
+    return out.reverse();
+  }
+
+  // ---------- генерация ----------
+  function generate() {
+    biome = new Uint8Array(N * N); elev = new Float32Array(N * N);
+    road = new Uint8Array(N * N); bridge = new Uint8Array(N * N);
+    trees = new Uint8Array(N * N); cleared = new Uint8Array(N * N); regrow = new Float32Array(N * N);
+    var c = N / 2, x, y, i, k;
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      i = idx(x, y);
+      var e = fbm(x / 11, y / 11), m = fbm(x / 8 + 200, y / 8 + 200), d = Math.hypot(x - c, y - c);
+      if (d < 5) e = Math.max(e, 0.42);
+      elev[i] = e;
+      var b = e < 0.36 ? LAKE : e > 0.62 ? HILLS : m > 0.55 ? FOREST : m < 0.43 ? FIELD : MEADOW;
+      if (d < 2.5) b = MEADOW;
+      biome[i] = b;
+    }
+    // реки
+    rivers = [];
+    var tries = 0;
+    while (rivers.length < 5 && tries < 900) {
+      tries++;
+      var sx = Math.floor(hash(tries, 9001) * N), sy = Math.floor(hash(tries, 9002) * N);
+      if (biome[idx(sx, sy)] !== HILLS || Math.hypot(sx - c, sy - c) < 6) continue;
+      var cx = sx, cy = sy, seen = {}, ok = false, path = [], endI = -1;
+      seen[idx(cx, cy)] = 1;
+      while (path.length < 60) {
+        var best = -1, bestE = 9;
+        for (k = 0; k < 4; k++) {
+          var nx = cx + DIRS[k][0], ny = cy + DIRS[k][1];
+          if (!inb(nx, ny) || seen[idx(nx, ny)]) continue;
+          var ne = elev[idx(nx, ny)] + hash(nx + path.length, ny + tries) * 0.03;
+          if (ne < bestE) { bestE = ne; best = k; }
+        }
+        if (best < 0) break;
+        cx += DIRS[best][0]; cy += DIRS[best][1];
+        var bi = idx(cx, cy);
+        if (biome[bi] === LAKE || biome[bi] === RIVER) { ok = true; endI = bi; break; }
+        seen[bi] = 1; path.push(bi);
+        if (cx === 0 || cy === 0 || cx === N - 1 || cy === N - 1) { ok = true; break; }
+      }
+      if (ok && path.length > 6) {
+        var near = false;
+        for (k = 0; k < path.length; k++) if (Math.hypot(path[k] % N - c, ((path[k] / N) | 0) - c) < 2.5) near = true;
+        if (near) continue;
+        for (k = 0; k < path.length; k++) biome[path[k]] = RIVER;
+        rivers.push({ src: idx(sx, sy), tiles: path, end: endI });
+      }
+    }
+    for (i = 0; i < N * N; i++) trees[i] = biome[i] === FOREST ? 3 : 0;
+    // посёлки
+    villages = [];
+    for (tries = 0; tries < 6000 && villages.length < 6; tries++) {
+      x = 3 + Math.floor(hash(tries, 7001) * (N - 6)); y = 3 + Math.floor(hash(tries, 7002) * (N - 6));
+      var bb = biome[idx(x, y)];
+      if (bb !== MEADOW && bb !== FIELD) continue;
+      var dc = Math.hypot(x + 0.5 - c, y + 0.5 - c);
+      if (!villages.length ? (dc < 4 || dc > 7) : dc < 6) continue;
+      var bad = false;
+      for (k = 0; k < 8; k++) if (isWater(x + DIRS[k][0], y + DIRS[k][1])) bad = true;
+      for (k = 0; k < villages.length; k++) if (Math.hypot(villages[k].x - x, villages[k].y - y) < 11) bad = true;
+      if (bad) continue;
+      villages.push({ x: x, y: y, name: VNAMES[villages.length], claimed: false, spawnT: 0, type: 'chop', type2: null, wood: 0, reserved: 0, incoming: 0, block: 0 });
+      for (var yy = y - 1; yy <= y + 1; yy++) for (var xx = x - 1; xx <= x + 1; xx++) {
+        i = idx(xx, yy);
+        if (biome[i] === FOREST || biome[i] === HILLS) { biome[i] = MEADOW; trees[i] = 0; }
+      }
+    }
+    var pool = ['haul', 'build'];
+    for (k = 2; k < villages.length - 1; k++) pool.push(['chop', 'haul', 'build'][Math.floor(hash(k, 4242) * 3)]);
+    for (k = pool.length - 1; k > 0; k--) { var sw = Math.floor(hash(k, 4343) * (k + 1)), tmp = pool[k]; pool[k] = pool[sw]; pool[sw] = tmp; }
+    for (k = 1; k < villages.length; k++) villages[k].type = pool[k - 1] || 'chop';
+    // дороги
+    roads = [];
+    function rpass(i2) { return biome[i2] !== LAKE; }
+    function rcost(i2, from) {
+      if (road[i2]) return 0.6;
+      var b2 = biome[i2];
+      return b2 === RIVER ? 14 : b2 === HILLS ? 3 : b2 === FOREST ? 2.2 : 1;
+    }
+    function addRoad(ax, ay, bx, by) {
+      var p = astar(ax, ay, bx, by, rpass, rcost, false, true);
+      if (!p) return;
+      p.unshift([ax, ay]);
+      for (var q = 0; q < p.length; q++) {
+        var ri = idx(p[q][0], p[q][1]);
+        road[ri] = 1;
+        if (biome[ri] === RIVER) bridge[ri] = 1;
+        else if (biome[ri] === FOREST) { biome[ri] = MEADOW; trees[ri] = 0; }
+      }
+      roads.push(p);
+    }
+    if (villages.length) addRoad(c | 0, c | 0, villages[0].x, villages[0].y);
+    for (i = 1; i < villages.length; i++) {
+      var bj = 0, bd = 1e9;
+      for (k = 0; k < i; k++) { var dd = Math.hypot(villages[k].x - villages[i].x, villages[k].y - villages[i].y); if (dd < bd) { bd = dd; bj = k; } }
+      addRoad(villages[i].x, villages[i].y, villages[bj].x, villages[bj].y);
+    }
+    blotches = [];
+    for (i = 0; i < 340; i++) blotches.push([hash(i, 5001) * N * TS, hash(i, 5002) * N * TS, 24 + hash(i, 5003) * 36, i % 2]);
+  }
+
+  // ---------- плавные контуры (marching squares) ----------
+  function mkField(test) {
+    var a = new Float32Array(GW * GW), b, i, j, k, p, hz;
+    for (j = 2; j < GW - 2; j++) for (i = 2; i < GW - 2; i++) {
+      var tx = Math.max(0, Math.min(N - 1, Math.floor((i - PADS + 0.5) / SS)));
+      var ty = Math.max(0, Math.min(N - 1, Math.floor((j - PADS + 0.5) / SS)));
+      a[j * GW + i] = test(idx(tx, ty)) ? 1 : 0;
+    }
+    for (p = 0; p < 2; p++) for (hz = 0; hz < 2; hz++) {
+      b = new Float32Array(GW * GW);
+      for (j = 0; j < GW; j++) for (i = 0; i < GW; i++) {
+        var s = 0, n = 0;
+        for (k = -2; k <= 2; k++) {
+          var ii = hz ? i : i + k, jj = hz ? j + k : j;
+          if (ii < 0 || jj < 0 || ii >= GW || jj >= GW) continue;
+          s += a[jj * GW + ii]; n++;
+        }
+        b[j * GW + i] = s / n;
+      }
+      a = b;
+    }
+    for (j = 0; j < GW; j++) for (i = 0; i < GW; i++) {
+      var ring = i < 2 || j < 2 || i >= GW - 2 || j >= GW - 2;
+      a[j * GW + i] = ring ? 0 : a[j * GW + i] + (vnoise(i / 6 + 40, j / 6 + 40) - 0.5) * 0.36;
+    }
+    return a;
+  }
+  function contour(a, thr) {
+    var U = TS / SS, segs = [], i, j;
+    function Pt(x, y) { return [(x - PADS + 0.5) * U, (y - PADS + 0.5) * U]; }
+    for (j = 0; j < GW - 1; j++) for (i = 0; i < GW - 1; i++) {
+      var tl = a[j * GW + i], tr = a[j * GW + i + 1], br = a[(j + 1) * GW + i + 1], bl = a[(j + 1) * GW + i];
+      var code = (tl > thr ? 8 : 0) | (tr > thr ? 4 : 0) | (br > thr ? 2 : 0) | (bl > thr ? 1 : 0);
+      if (!code || code === 15) continue;
+      var T = Pt(i + (thr - tl) / (tr - tl), j), R = Pt(i + 1, j + (thr - tr) / (br - tr));
+      var B = Pt(i + (thr - bl) / (br - bl), j + 1), L = Pt(i, j + (thr - tl) / (bl - tl));
+      switch (code) {
+        case 1: case 14: segs.push([L, B]); break;
+        case 2: case 13: segs.push([B, R]); break;
+        case 3: case 12: segs.push([L, R]); break;
+        case 4: case 11: segs.push([T, R]); break;
+        case 6: case 9: segs.push([T, B]); break;
+        case 7: case 8: segs.push([L, T]); break;
+        case 5: segs.push([L, T], [B, R]); break;
+        case 10: segs.push([T, R], [L, B]); break;
+      }
+    }
+    var adj = new Map();
+    function key(p) { return Math.round(p[0] * 50) + ',' + Math.round(p[1] * 50); }
+    segs.forEach(function (s) {
+      var kp = key(s[0]), kq = key(s[1]);
+      if (kp === kq) return;
+      if (!adj.has(kp)) adj.set(kp, { p: s[0], n: [] });
+      if (!adj.has(kq)) adj.set(kq, { p: s[1], n: [] });
+      adj.get(kp).n.push(kq); adj.get(kq).n.push(kp);
+    });
+    var seen = new Set(), path = new Path2D();
+    adj.forEach(function (_, k0) {
+      if (seen.has(k0)) return;
+      var loop = [], k = k0, prev = null;
+      while (k && !seen.has(k)) {
+        seen.add(k);
+        var nd = adj.get(k); loop.push(nd.p);
+        var nx = null;
+        for (var q = 0; q < nd.n.length; q++) if (nd.n[q] !== prev && !seen.has(nd.n[q])) { nx = nd.n[q]; break; }
+        prev = k; k = nx;
+      }
+      var n = loop.length;
+      if (n < 6) return;
+      path.moveTo((loop[n - 1][0] + loop[0][0]) / 2, (loop[n - 1][1] + loop[0][1]) / 2);
+      for (var m = 0; m < n; m++) {
+        var a2 = loop[m], b2 = loop[(m + 1) % n];
+        path.quadraticCurveTo(a2[0], a2[1], (a2[0] + b2[0]) / 2, (a2[1] + b2[1]) / 2);
+      }
+      path.closePath();
+    });
+    return path;
+  }
+  function cr(pts, n) {
+    var Q = [pts[0]].concat(pts, [pts[pts.length - 1]]), o = [];
+    for (var i = 1; i < Q.length - 2; i++) for (var k = 0; k < n; k++) {
+      var t = k / n, t2 = t * t, t3 = t2 * t, pt = [0, 0];
+      for (var j = 0; j < 2; j++)
+        pt[j] = 0.5 * (2 * Q[i][j] + (-Q[i - 1][j] + Q[i + 1][j]) * t +
+          (2 * Q[i - 1][j] - 5 * Q[i][j] + 4 * Q[i + 1][j] - Q[i + 2][j]) * t2 +
+          (-Q[i - 1][j] + 3 * Q[i][j] - 3 * Q[i + 1][j] + Q[i + 2][j]) * t3);
+      o.push(pt);
+    }
+    o.push(pts[pts.length - 1]);
+    return o;
+  }
+  function tilePt(i) { var x = i % N, y = (i / N) | 0, j = jit(x, y); return [(x + 0.5 + j[0]) * TS, (y + 0.5 + j[1]) * TS]; }
+  function buildForest() {
+    var f = mkField(function (i) { return biome[i] === FOREST && trees[i] > 0; });
+    P.F45 = contour(f, 0.45); P.F6 = contour(f, 0.62);
+  }
+  function buildShapes() {
+    var h = mkField(function (i) { return biome[i] === HILLS; });
+    var w = mkField(function (i) { return biome[i] === FIELD; });
+    var l = mkField(function (i) { return biome[i] === LAKE; });
+    P.H5 = contour(h, 0.5); P.H8 = contour(h, 0.78); P.W5 = contour(w, 0.5);
+    P.L5 = contour(l, 0.5); P.L7 = contour(l, 0.7); P.L9 = contour(l, 0.88);
+    buildForest();
+    rivers.forEach(function (r) {
+      var raw = [r.src].concat(r.tiles); if (r.end >= 0) raw.push(r.end);
+      raw = raw.map(function (i) { return [(i % N + 0.5) * TS, (((i / N) | 0) + 0.5) * TS]; });
+      var pts = raw.map(function (p, k) {
+        if (k === 0 || k === raw.length - 1) return p;
+        var sx = 0, sy = 0, n = 0;
+        for (var q = Math.max(0, k - 2); q <= Math.min(raw.length - 1, k + 2); q++) { sx += raw[q][0]; sy += raw[q][1]; n++; }
+        return [sx / n, sy / n];
+      });
+      var thin = pts.filter(function (p, k) { return k % 2 === 0 || k === pts.length - 1; });
+      r.pts = cr(thin, 10);
+      r.path = new Path2D();
+      r.pts.forEach(function (p, k) { if (k) r.path.lineTo(p[0], p[1]); else r.path.moveTo(p[0], p[1]); });
+    });
+    roads.forEach(function (rd) {
+      var pts = cr(rd.map(function (t) { return tilePt(idx(t[0], t[1])); }), 5);
+      rd.path = new Path2D();
+      pts.forEach(function (p, k) { if (k) rd.path.lineTo(p[0], p[1]); else rd.path.moveTo(p[0], p[1]); });
+    });
+    chunks.clear();
+  }
+
+  // ---------- состояние ----------
+  function newGame(s) {
+    seed = s;
+    generate();
+    fogT = new Float32Array(N * N).fill(1); fogA = new Float32Array(N * N).fill(1);
+    helpers = []; orders = []; sites = []; piles = new Map(); camps = []; fires = new Map(); campMask = new Uint8Array(N * N); plan = null;
+    hero = { x: N / 2 + 0.5, y: N / 2 + 0.5, dir: 1, moving: false, ph: 0, path: [] };
+    target = null;
+    buildShapes();
+  }
+  function save() {
+    try {
+      var bits = '', i, k;
+      for (i = 0; i < N * N; i += 4) { var n = 0; for (k = 0; k < 4; k++) if (fogT[i + k] < 0.6) n |= 1 << k; bits += n.toString(16); }
+      var tr = [], cl = [], br = [];
+      for (i = 0; i < N * N; i++) {
+        if (cleared[i]) cl.push(i);
+        else if (biome[i] === FOREST && trees[i] < 3) tr.push([i, trees[i]]);
+        if (bridge[i] && !road[i]) br.push(i);
+      }
+      var pl = []; piles.forEach(function (p, i2) { if (p.count > 0) pl.push([i2, p.count]); });
+      localStorage.setItem(KEY, JSON.stringify({ ver: 4,
+        seed: seed, x: hero.x, y: hero.y, bits: bits, tr: tr, cl: cl, br: br, pl: pl,
+        v: villages.map(function (v, vi) { return [v.claimed ? 1 : 0, helpers.filter(function (h) { return h.v === vi; }).map(function (h) { return h.skill; }), v.type2, v.wood]; }),
+        st: sites.map(function (s) { return [s.type, s.x, s.y, s.need, s.delivered, s.v, s.t2]; }),
+        cm: camps.map(function (c) { return [c.x, c.y, c.wood]; }),
+        or: orders.map(function (o) { return idx(o.x, o.y); })
+      }));
+    } catch (e) {}
+  }
+  function load() {
+    try {
+      var s = JSON.parse(localStorage.getItem(KEY));
+      if (!s || typeof s.seed !== 'number' || !s.bits || s.bits.length !== N * N / 4) return false;
+      newGame(s.seed);
+      for (var i = 0; i < N * N; i += 4) {
+        var n = parseInt(s.bits[i / 4], 16);
+        for (var k = 0; k < 4; k++) if (n & (1 << k)) { fogT[i + k] = 0; fogA[i + k] = 0; }
+      }
+      (s.cl || []).forEach(function (i2) { biome[i2] = MEADOW; trees[i2] = 0; cleared[i2] = 1; });
+      (s.tr || []).forEach(function (t) { trees[t[0]] = t[1]; });
+      (s.br || []).forEach(function (i2) { bridge[i2] = 1; });
+      (s.pl || []).forEach(function (p) { piles.set(p[0], { count: p[1], reserved: 0 }); });
+      (s.v || []).forEach(function (v, vi) {
+        if (!villages[vi]) return;
+        villages[vi].claimed = !!v[0]; villages[vi].type2 = v[2] || null; villages[vi].wood = v[3] || 0;
+        (v[1] || []).forEach(function (sk) { addHelper(vi, sk); });
+      });
+      (s.st || []).forEach(function (t) {
+        if (!s.ver && t[0] === 'camp') { if (t[4] > 0) piles.set(idx(t[1], t[2]), { count: t[4], reserved: 0, age: 0 }); return; }
+        sites.push({ type: t[0], x: t[1], y: t[2], need: t[3], delivered: t[4], v: t[5], t2: t[6], incoming: 0, builder: null, progress: 0, block: 0 }); });
+      (s.cm || []).forEach(function (c) { var nc = { x: Math.min(c[0], N - 2), y: Math.min(c[1], N - 2), wood: c[2] || 0, reserved: 0, incoming: 0, block: 0, isCamp: true }; camps.push(nc); markCamp(nc); });
+      (s.or || []).forEach(function (i2) { if (biome[i2] === FOREST) orders.push({ x: i2 % N, y: (i2 / N) | 0, taken: null, block: 0 }); });
+      if (walkable(idx(Math.floor(s.x), Math.floor(s.y)))) { hero.x = s.x; hero.y = s.y; }
+      buildForest(); chunks.clear();
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // ---------- туман, сообщения ----------
+  var toastTimer = 0, toastQueue = [];
+  function toast(t) { toastQueue.push(t); if (!toastTimer) nextToast(); }
+  function nextToast() {
+    var el = document.getElementById('toast');
+    if (!toastQueue.length) { toastTimer = 0; return; }
+    el.textContent = toastQueue.shift(); el.classList.add('show');
+    toastTimer = setTimeout(function () { el.classList.remove('show'); toastTimer = setTimeout(nextToast, 350); }, 2100);
+  }
+  var tipTimer = 0;
+  function tip(t, keep) { var el = document.getElementById('tip'); if (t) el.textContent = t; el.classList.toggle('hide', !t); clearTimeout(tipTimer); if (t && !keep) tipTimer = setTimeout(function () { el.classList.add('hide'); }, 7000); }
+  var heroRepath = false;
+  function reveal(cxf, cyf, R) {
+    var cx = Math.floor(cxf), cy = Math.floor(cyf), rr = Math.ceil(R) + 1;
+    for (var y = cy - rr; y <= cy + rr; y++) for (var x = cx - rr; x <= cx + rr; x++) {
+      if (!inb(x, y)) continue;
+      var d = Math.hypot(x + 0.5 - cxf, y + 0.5 - cyf);
+      if (d > R) continue;
+      var v = Math.max(0, (d - (R - 1.3)) / 1.3) * 0.75, i = idx(x, y);
+      if (v < fogT[i]) { if (fogT[i] >= 0.6 && v < 0.6) { heroRepath = true; saveDirty = true; } fogT[i] = v; }
+    }
+  }
+
+  // ---------- помощники ----------
+  function natives(vi, skill) { var n = 0; helpers.forEach(function (h) { if (h.v === vi && (!skill || h.skill === skill)) n++; }); return n; }
+  function countSkill(skill) { var n = 0; helpers.forEach(function (h) { if (h.skill === skill) n++; }); return n; }
+  function residents(c) { var n = 0; helpers.forEach(function (h) { if (h.home === c) n++; }); return n; }
+  function addHelper(vi, skill) {
+    var v = villages[vi];
+    if (!skill) skill = v.type2 && natives(vi, v.type2) < natives(vi, v.type) ? v.type2 : v.type;
+    helpers.push({ v: vi, skill: skill, home: v, x: v.x + 0.5, y: v.y + 0.5, state: 'in', job: null, path: [], t: 0, carrying: false, ph: 0, dir: 1, moving: false });
+    dirtyHud = true;
+  }
+  function pathFor(h, gx, gy) {
+    var p = astar(Math.floor(h.x), Math.floor(h.y), gx, gy, walkable, function (i) { return 1 / speedMul(i); }, true);
+    if (!p) return null;
+    return p.map(function (t) { return wp(t[0], t[1]); });
+  }
+  function dist2(h, x, y) { return Math.hypot(h.x - x - 0.5, h.y - y - 0.5); }
+  function big(o) { return o.type === 'camp' || o.isCamp === true; }
+  function stores() { return camps.concat(villages.filter(function (v) { return v.claimed; })); }
+  function cap(st) { return st.isCamp ? CSTORE : VSTORE; }
+  function room(st) { return cap(st) - st.wood - (st.incoming || 0); }
+  function foot(o) { return big(o) ? [idx(o.x, o.y), idx(o.x + 1, o.y), idx(o.x, o.y + 1), idx(o.x + 1, o.y + 1)] : [idx(o.x, o.y)]; }
+  function goal(o) { return big(o) ? { tx: o.x, ty: o.y + 1, px: o.x + 1, py: o.y + 1.8 } : { tx: o.x, ty: o.y, px: o.x + 0.5, py: o.y + 0.5 }; }
+  function distO(h, o) { var g = goal(o); return Math.hypot(h.x - g.px, h.y - g.py); }
+  function pathTo(h, o) { var g = goal(o), p = pathFor(h, g.tx, g.ty); if (p && big(o)) p.push([g.px, g.py]); return p; }
+  function markCamp(c) { foot(c).forEach(function (i) { campMask[i] = 1; }); }
+  function nearest(h, list, ok) {
+    var b = null, bd = 1e9;
+    list.forEach(function (o) { if (!ok(o)) return; var d = distO(h, o); if (d < bd) { bd = d; b = o; } });
+    return b;
+  }
+  function isSite(o) { return o.need !== undefined; }
+  function assign(h) {
+    var s, p;
+    if (h.skill === 'build') {
+      s = nearest(h, sites, function (q) { return q.type !== 'upgrade' && q.delivered >= q.need && !q.builder && now > q.block; });
+      if (!s) return false;
+      p = pathTo(h, s);
+      if (!p) { s.block = now + 6; return false; }
+      s.builder = h; h.job = { type: 'build', site: s }; h.path = p; h.state = 'go'; return true;
+    }
+    if (h.skill === 'chop') {
+      var o = nearest(h, orders, function (q) { return !q.taken && now > q.block; });
+      if (!o) return false;
+      p = pathTo(h, o);
+      if (!p) { o.block = now + 6; return false; }
+      o.taken = h; h.job = { type: 'chop', order: o }; h.path = p; h.state = 'go'; return true;
+    }
+    var best = null, bd = 1e9;
+    function consider(src, sx, sy, dest) {
+      var d = dist2(h, sx, sy) + Math.hypot(sx - dest.x, sy - dest.y) - (src.k === 'p' ? 3 : 0);
+      if (d < bd) { bd = d; best = { src: src, sx: sx, sy: sy, dest: dest }; }
+    }
+    sites.forEach(function (q) {
+      if (q.delivered + q.incoming >= q.need || now < q.block) return;
+      piles.forEach(function (pl, pi) { if (pl.count - pl.reserved > 0 && (pl.block || 0) < now && !fires.has(pi)) consider({ k: 'p', i: pi }, pi % N, (pi / N) | 0, q); });
+      stores().forEach(function (c) { if (c.wood - c.reserved > 0) consider({ k: 'c', o: c }, c.x, c.y, q); });
+    });
+    if (!best) {
+      var st = stores().filter(function (c) { return room(c) > 0 && (c.block || 0) < now; });
+      if (st.length) piles.forEach(function (pl, pi) {
+        if (pl.count - pl.reserved <= 0 || (pl.block || 0) > now || fires.has(pi) || campMask[pi]) return;
+        var px = pi % N, py = (pi / N) | 0;
+        st.forEach(function (c) { consider({ k: 'p', i: pi }, px, py, c); });
+      });
+    }
+    if (!best) return false;
+    p = best.src.k === 'c' ? pathTo(h, best.src.o) : pathFor(h, best.sx, best.sy);
+    if (!p) { if (best.src.k === 'p') piles.get(best.src.i).block = now + 6; else best.dest.block = now + 6; return false; }
+    (best.src.k === 'p' ? piles.get(best.src.i) : best.src.o).reserved++;
+    best.dest.incoming = (best.dest.incoming || 0) + 1;
+    h.job = { type: 'haul', src: best.src, dest: best.dest, stage: 0 }; h.path = p; h.state = 'go';
+    return true;
+  }
+  function goHome(h) {
+    h.job = null; h.carrying = false; h.t = 0;
+    var best = villages[h.v], bd = distO(h, best);
+    camps.forEach(function (c) {
+      var d = distO(h, c);
+      if (d < bd && (h.home === c || residents(c) < CAMP_CAP)) { bd = d; best = c; }
+    });
+    h.home = best;
+    if (bd < 0.3) { h.state = 'in'; h.path = []; }
+    else { var g = goal(best); h.path = pathTo(h, best) || [[g.px, g.py]]; h.state = 'back'; }
+    dirtyHud = true;
+  }
+  function release(h) {
+    var j = h.job;
+    if (!j) return;
+    if (j.type === 'build' && j.site.builder === h) j.site.builder = null;
+    if (j.type === 'chop' && j.order.taken === h) j.order.taken = null;
+    if (j.type === 'haul') {
+      if (j.stage === 0) { var sr = j.src.k === 'p' ? piles.get(j.src.i) : j.src.o; if (sr) sr.reserved = Math.max(0, sr.reserved - 1); }
+      j.dest.incoming = Math.max(0, (j.dest.incoming || 0) - 1);
+    }
+  }
+  function dropHere(h, block) {
+    var i = idx(Math.floor(h.x), Math.floor(h.y)), p = piles.get(i) || { count: 0, reserved: 0 };
+    p.count++; p.age = 0; if (block) p.block = now + 6; piles.set(i, p); h.carrying = false; dirtyHud = true;
+  }
+  function moveAlong(e, dt, base) {
+    e.moving = false;
+    while (dt > 0 && e.path.length) {
+      var w = e.path[0], dx = w[0] - e.x, dy = w[1] - e.y, d = Math.hypot(dx, dy);
+      var sp = base * speedMul(idx(Math.max(0, Math.min(N - 1, Math.floor(e.x))), Math.max(0, Math.min(N - 1, Math.floor(e.y)))));
+      if (d < 1e-4) { e.path.shift(); continue; }
+      var st = sp * dt;
+      if (Math.abs(dx) > 0.02) e.dir = dx > 0 ? 1 : -1;
+      e.moving = true;
+      if (st >= d) { e.x = w[0]; e.y = w[1]; e.path.shift(); dt -= d / sp; e.ph += d * 4.2; }
+      else { e.x += dx / d * st; e.y += dy / d * st; e.ph += st * 4.2; dt = 0; }
+    }
+    return !e.path.length;
+  }
+  function invalidate(x, y) {
+    var x0 = Math.floor((x - 2) * TS / CH), x1 = Math.floor((x + 3) * TS / CH);
+    var y0 = Math.floor((y - 2) * TS / CH), y1 = Math.floor((y + 3) * TS / CH);
+    for (var cy = y0; cy <= y1; cy++) for (var cx = x0; cx <= x1; cx++) chunks.delete(cx + ',' + cy);
+  }
+  function completeSite(s) {
+    sites.splice(sites.indexOf(s), 1);
+    if (s.type === 'camp') {
+      var nc = { x: s.x, y: s.y, wood: 0, reserved: 0, incoming: 0, block: 0, isCamp: true };
+      foot(nc).forEach(function (fi) { var pl = piles.get(fi); if (pl && !pl.reserved) { nc.wood = Math.min(CSTORE, nc.wood + pl.count); piles.delete(fi); } });
+      camps.push(nc); markCamp(nc); reveal(s.x + 1, s.y + 1, 6); toast('Лагерь построен: склад и дом для людей');
+    }
+    else if (s.type === 'upgrade') { var v = villages[s.v]; v.type2 = s.t2; v.spawnT = SPAWN_T; toast(v.name + ': теперь ещё и ' + TNAME[s.t2]); }
+    else { bridge[idx(s.x, s.y)] = 1; heroRepath = true; toast('Новый мост построен'); }
+    saveDirty = true; dirtyHud = true;
+  }
+  function stepHelper(h, dt) {
+    if (h.state === 'in') return;
+    var j = h.job;
+    if (h.state === 'go' || h.state === 'back') {
+      if (j) {
+        var gone = j.type === 'chop' ? orders.indexOf(j.order) < 0 : j.type === 'build' ? sites.indexOf(j.site) < 0 : (isSite(j.dest) && sites.indexOf(j.dest) < 0);
+        if (gone) { release(h); if (h.carrying) dropHere(h, false); goHome(h); return; }
+      }
+      if (!moveAlong(h, dt, HSPEED)) return;
+      if (h.state === 'back') { h.state = 'in'; dirtyHud = true; return; }
+      if (j.type === 'haul') {
+        if (j.stage === 0) {
+          var src = j.src.k === 'p' ? piles.get(j.src.i) : j.src.o;
+          if (!src || (j.src.k === 'p' ? src.count : src.wood) <= 0) { release(h); h.job = null; h.state = 'free'; return; }
+          src.reserved = Math.max(0, src.reserved - 1);
+          if (j.src.k === 'p') { src.count--; if (src.count <= 0 && src.reserved <= 0) piles.delete(j.src.i); }
+          else src.wood--;
+          h.carrying = true; j.stage = 1; dirtyHud = true;
+          var p = pathTo(h, j.dest);
+          if (!p) {
+            dropHere(h, true);
+            j.dest.incoming = Math.max(0, (j.dest.incoming || 0) - 1); j.dest.block = now + 6;
+            h.job = null; h.state = 'free'; return;
+          }
+          h.path = p;
+        } else {
+          h.carrying = false;
+          if (isSite(j.dest)) {
+            j.dest.delivered++; j.dest.incoming = Math.max(0, j.dest.incoming - 1);
+            if (j.dest.type === 'upgrade' && j.dest.delivered >= j.dest.need) completeSite(j.dest);
+          } else { j.dest.incoming = Math.max(0, (j.dest.incoming || 0) - 1); j.dest.wood = Math.min(cap(j.dest), j.dest.wood + 1); }
+          h.job = null; h.state = 'free'; saveDirty = true; dirtyHud = true;
+        }
+        return;
+      }
+      h.state = 'work'; h.t = 0;
+      return;
+    }
+    if (h.state === 'work') {
+      h.t += dt; h.ph += dt * 9;
+      if (j.type === 'chop') {
+        var o = j.order, i = idx(o.x, o.y);
+        if (orders.indexOf(o) < 0) { goHome(h); return; }
+        if (h.t >= CHOP_T) {
+          h.t = 0; trees[i]--; regrow[i] = 0;
+          var pile = piles.get(i) || { count: 0, reserved: 0 };
+          pile.count++; pile.age = 0; piles.set(i, pile); dirtyHud = true; saveDirty = true;
+          if (trees[i] <= 0) {
+            biome[i] = MEADOW; cleared[i] = 1; orders.splice(orders.indexOf(o), 1);
+            buildForest(); invalidate(o.x, o.y);
+            h.job = null; h.state = 'free';
+          }
+        }
+      } else if (j.type === 'build') {
+        if (sites.indexOf(j.site) < 0) { goHome(h); return; }
+        j.site.progress += dt / BUILD_T;
+        if (j.site.progress >= 1) { completeSite(j.site); h.job = null; h.state = 'free'; }
+      }
+    }
+  }
+  var assignT = 0, growT = 0;
+  function stepGrow(dt) {
+    growT += dt;
+    if (growT < 1) return;
+    growT -= 1;
+    var changed = false, busy = {};
+    orders.forEach(function (o) { busy[idx(o.x, o.y)] = 1; });
+    sites.forEach(function (s) { foot(s).forEach(function (fi) { busy[fi] = 1; }); });
+    camps.forEach(function (c) { foot(c).forEach(function (fi) { busy[fi] = 1; }); });
+    if (plan) foot(plan).forEach(function (fi) { busy[fi] = 1; });
+    for (var i = 0; i < N * N; i++) {
+      if (busy[i]) continue;
+      if (cleared[i]) {
+        if (++regrow[i] >= REGROW_T) { regrow[i] = 0; cleared[i] = 0; biome[i] = FOREST; trees[i] = 1; invalidate(i % N, (i / N) | 0); changed = true; }
+      } else if (biome[i] === FOREST && trees[i] < 3) {
+        if (++regrow[i] >= GROW_T) { regrow[i] = 0; trees[i]++; }
+      }
+    }
+    // брошенные дрова гниют и могут загореться
+    piles.forEach(function (p, pi) {
+      p.age = (p.age || 0) + 1;
+      if (fires.has(pi)) return;
+      if (p.age > ROT_T) {
+        if (!warned.rot) { warned.rot = 1; toast('Брошенные дрова гниют — нужен склад в лагере'); }
+        if ((p.age - ROT_T) % ROT_STEP === 0) { p.count--; dirtyHud = true; saveDirty = true; if (p.count <= 0) { piles.delete(pi); return; } }
+        if (Math.random() < FIRE_CHANCE) { fires.set(pi, { t: FIRE_T, gen: 0 }); toast('Пожар! Загорелись брошенные дрова'); }
+      }
+    });
+    fires.forEach(function (f, fi) {
+      if (--f.t > 0) return;
+      fires.delete(fi);
+      var fx = fi % N, fy = (fi / N) | 0;
+      if (piles.has(fi)) { piles.delete(fi); dirtyHud = true; }
+      if (biome[fi] === FOREST) {
+        biome[fi] = MEADOW; trees[fi] = 0; cleared[fi] = 1; regrow[fi] = 0; invalidate(fx, fy); changed = true;
+        for (var q = orders.length - 1; q >= 0; q--) if (orders[q].x === fx && orders[q].y === fy) orders.splice(q, 1);
+      }
+      if (f.gen < 3) for (var d = 0; d < 4; d++) {
+        var nx = fx + DIRS[d][0], ny = fy + DIRS[d][1];
+        if (!inb(nx, ny)) continue;
+        var ni = idx(nx, ny);
+        if (!fires.has(ni) && (biome[ni] === FOREST && trees[ni] > 0 || piles.has(ni)) && Math.random() < 0.3) fires.set(ni, { t: FIRE_T, gen: f.gen + 1 });
+      }
+      saveDirty = true;
+    });
+    if (changed) { buildForest(); saveDirty = true; }
+  }
+  function stepHelpers(dt) {
+    villages.forEach(function (v, vi) {
+      if (!v.claimed) return;
+      if (natives(vi) >= VCAP + (v.type2 ? 3 : 0)) { v.spawnT = 0; return; }
+      v.spawnT += dt;
+      if (v.spawnT >= SPAWN_T) { v.spawnT = 0; addHelper(vi); saveDirty = true; }
+    });
+    helpers.forEach(function (h) { stepHelper(h, dt); });
+    assignT -= dt;
+    var doAssign = assignT <= 0;
+    if (doAssign) assignT = 0.4;
+    helpers.forEach(function (h) {
+      if (h.state === 'free') { if (!assign(h)) goHome(h); else dirtyHud = true; }
+      else if (doAssign && (h.state === 'in' || h.state === 'back')) { if (assign(h)) dirtyHud = true; }
+    });
+    stepGrow(dt);
+  }
+
+  // ---------- богатырь ----------
+  function heroPath() {
+    if (!target) { hero.path = []; return; }
+    var gx = Math.max(0, Math.min(N - 1, Math.floor(target.x))), gy = Math.max(0, Math.min(N - 1, Math.floor(target.y)));
+    var p = astar(Math.floor(hero.x), Math.floor(hero.y), gx, gy,
+      function (i) { return known(i) ? walkable(i) : true; },
+      function (i) { return known(i) ? 1 / speedMul(i) : 1; }, false);
+    var pts = p.map(function (t) { return wp(t[0], t[1]); });
+    if (p.length && p[p.length - 1][0] === gx && p[p.length - 1][1] === gy && !road[idx(gx, gy)] && !bridge[idx(gx, gy)])
+      pts[pts.length - 1] = [target.x, target.y];
+    hero.path = pts;
+  }
+  function stepHero(dt) {
+    if (heroRepath && target) heroPath();
+    heroRepath = false;
+    if (hero.path.length) {
+      var w = hero.path[0], ti = idx(Math.max(0, Math.min(N - 1, Math.floor(w[0]))), Math.max(0, Math.min(N - 1, Math.floor(w[1]))));
+      if (!walkable(ti)) { heroPath(); if (hero.path.length && !walkable(idx(Math.floor(hero.path[0][0]), Math.floor(hero.path[0][1])))) hero.path = []; }
+    }
+    var done = moveAlong(hero, dt, SPEED);
+    if (hero.moving) reveal(hero.x, hero.y, REVEAL);
+    if (done && target && !pointerDown) target = null;
+    villages.forEach(function (v) {
+      if (!v.claimed && Math.hypot(hero.x - v.x - 0.5, hero.y - v.y - 0.5) < 0.9) {
+        v.claimed = true; v.spawnT = 0;
+        addHelper(villages.indexOf(v)); addHelper(villages.indexOf(v));
+        reveal(v.x + 0.5, v.y + 0.5, 4.5);
+        toast(v.name + ' служит богатырю: ' + TNAME[v.type]);
+        if (helpers.length <= 2) tip('Каждый посёлок даёт один вид людей и хранит до ' + VSTORE + ' брёвен в амбаре. Ищи остальных по дорогам.');
+        saveDirty = true; dirtyHud = true;
+      }
+    });
+  }
+
+  // ---------- приказы ----------
+  function siteAt(x, y) {
+    var i = idx(x, y);
+    for (var k = 0; k < sites.length; k++) if (sites[k].type !== 'upgrade' && foot(sites[k]).indexOf(i) >= 0) return sites[k];
+    return null;
+  }
+  function campOk(x0, y0) {
+    var ok = true, c0 = { type: 'camp', x: x0, y: y0 };
+    if (!inb(x0, y0) || !inb(x0 + 1, y0 + 1)) return false;
+    foot(c0).forEach(function (i) {
+      var tx = i % N, ty = (i / N) | 0;
+      if (!known(i) || (biome[i] !== MEADOW && biome[i] !== FIELD) || road[i] || bridge[i] || siteAt(tx, ty) || fires.has(i)) ok = false;
+      villages.forEach(function (v) { if (Math.abs(v.x - tx) <= 1 && Math.abs(v.y - ty) <= 1) ok = false; });
+    });
+    camps.forEach(function (c) { if (Math.abs(c.x - x0) < 3 && Math.abs(c.y - y0) < 3) ok = false; });
+    sites.forEach(function (q) { if (q.type === 'camp' && Math.abs(q.x - x0) < 3 && Math.abs(q.y - y0) < 3) ok = false; });
+    return ok;
+  }
+  function bridgeOk(x, y) { var i = idx(x, y); return inb(x, y) && known(i) && biome[i] === RIVER && !bridge[i] && !siteAt(x, y); }
+  function placeSite(type, x, y) {
+    if (type === 'camp' ? !campOk(x, y) : !bridgeOk(x, y)) return false;
+    var st = { type: type, x: x, y: y, need: type === 'camp' ? CAMP_NEED : BRIDGE_NEED, delivered: 0, incoming: 0, builder: null, progress: 0, block: 0 };
+    foot(st).forEach(function (i) { if (cleared[i]) { cleared[i] = 0; regrow[i] = 0; invalidate(i % N, (i / N) | 0); } });
+    sites.push(st); saveDirty = true;
+    return true;
+  }
+  var cfYes = null, cfNo = null;
+  function confirmBox(text, noLabel, yesLabel, onYes, onNo) {
+    document.getElementById('cf-t').textContent = text;
+    document.getElementById('cf-no').textContent = noLabel;
+    document.getElementById('cf-yes').textContent = yesLabel;
+    cfYes = onYes; cfNo = onNo;
+    document.getElementById('confirm').style.display = 'block';
+    document.getElementById('tip').classList.add('hide');
+  }
+  function closeBox() { document.getElementById('confirm').style.display = 'none'; cfYes = cfNo = null; }
+  document.getElementById('cf-yes').addEventListener('click', function () { var f = cfYes; closeBox(); if (f) f(); });
+  document.getElementById('cf-no').addEventListener('click', function () { var f = cfNo; closeBox(); if (f) f(); });
+  function setMode(m) {
+    mode = m; plan = null; closeBox();
+    Array.prototype.forEach.call(document.querySelectorAll('#bar button'), function (q) { q.classList.toggle('on', q.dataset.mode === mode); });
+    tip(mode ? TIPS[mode] : '', true);
+  }
+  function askPlan() {
+    var camp = plan.type === 'camp';
+    confirmBox(camp ? 'Лагерь здесь? Нужно ' + CAMP_NEED + ' дров. Коснись земли, чтобы передвинуть.' : 'Мост здесь? Нужно ' + BRIDGE_NEED + ' дров.',
+      'Отмена', 'Строить',
+      function () {
+        var p = plan;
+        if (!placeSite(p.type, p.x, p.y)) { toast('Сюда уже нельзя — выбери другое место'); askPlan(); return; }
+        setMode(null); need(['haul', 'build']);
+      },
+      function () { setMode(null); });
+  }
+  function askCancel(st) {
+    plan = null;
+    confirmBox('Отменить эту стройку?' + (st.delivered ? ' Принесённые дрова останутся рядом.' : ''), 'Оставить', 'Отменить стройку',
+      function () {
+        var k = sites.indexOf(st);
+        if (k < 0) return;
+        sites.splice(k, 1);
+        if (st.delivered) { var g = goal(st), gi = idx(g.tx, g.ty), pl = piles.get(gi) || { count: 0, reserved: 0 }; pl.count += st.delivered; pl.age = 0; piles.set(gi, pl); }
+        saveDirty = true; dirtyHud = true;
+      }, null);
+  }
+  // true — касание ушло в приказ; false — пусть богатырь едет
+  function order(wx, wy) {
+    var x = Math.floor(wx), y = Math.floor(wy), k;
+    if (!inb(x, y)) return false;
+    var i = idx(x, y);
+    if (!known(i)) return false;
+    if (mode === 'chop') {
+      for (k = 0; k < orders.length; k++) if (orders[k].x === x && orders[k].y === y) {
+        if (!orders[k].taken) orders.splice(k, 1);
+        saveDirty = true; return true;
+      }
+      if (biome[i] !== FOREST || trees[i] <= 0) return false;
+      orders.push({ x: x, y: y, taken: null, block: 0 });
+      need(['chop']); saveDirty = true;
+      return true;
+    }
+    if (mode === 'camp' || mode === 'bridge') {
+      var ex = siteAt(x, y);
+      if (ex && ex.type === mode) { askCancel(ex); return true; }
+      if (mode === 'camp') {
+        var cx0 = Math.round(wx) - 1, cy0 = Math.round(wy) - 1;
+        if (!campOk(cx0, cy0)) { toast('Для лагеря нужен свободный луг или поле 2×2: без дороги и не вплотную к посёлку'); return true; }
+        plan = { type: 'camp', x: cx0, y: cy0 };
+      } else {
+        if (!bridgeOk(x, y)) { toast('Мост строят на реке'); return true; }
+        plan = { type: 'bridge', x: x, y: y };
+      }
+      askPlan();
+      return true;
+    }
+    if (mode === 'upgrade') {
+      var uv = -1;
+      villages.forEach(function (v, vi) { if (Math.abs(v.x - x) <= 1 && Math.abs(v.y - y) <= 1) uv = vi; });
+      if (uv < 0) return false;
+      if (!villages[uv].claimed) { toast('Сначала поставь флаг в этом посёлке'); return true; }
+      if (villages[uv].type2) { toast('Этот посёлок уже улучшен'); return true; }
+      for (k = 0; k < sites.length; k++) if (sites[k].type === 'upgrade' && sites[k].v === uv) { askCancel(sites[k]); return true; }
+      choose(uv);
+      return true;
+    }
+    return false;
+  }
+  function need(list) {
+    var miss = list.filter(function (t) { return !countSkill(t); });
+    if (miss.length) toast('Пока нет: ' + miss.map(function (t) { return TNAME[t]; }).join(', ') + ' — найди их посёлок');
+  }
+  var chooseV = -1;
+  function choose(vi) {
+    var v = villages[vi], opts = ['chop', 'haul', 'build'].filter(function (t) { return t !== v.type; });
+    chooseV = vi;
+    document.getElementById('choose-t').textContent = v.name + ': кого добавить к ' + (v.type === 'chop' ? 'лесорубам' : v.type === 'haul' ? 'носильщикам' : 'строителям') + '? Нужно ' + UPG_NEED + ' дров.';
+    ['ch1', 'ch2'].forEach(function (id, q) { var b = document.getElementById(id); b.textContent = TNAME[opts[q]][0].toUpperCase() + TNAME[opts[q]].slice(1); b.dataset.t = opts[q]; });
+    document.getElementById('choose').style.display = 'block';
+  }
+  ['ch0', 'ch1', 'ch2'].forEach(function (id) {
+    document.getElementById(id).addEventListener('click', function (e) {
+      document.getElementById('choose').style.display = 'none';
+      var t = e.currentTarget.dataset.t;
+      if (!t || chooseV < 0) return;
+      var v = villages[chooseV];
+      sites.push({ type: 'upgrade', v: chooseV, t2: t, x: v.x, y: v.y, need: UPG_NEED, delivered: 0, incoming: 0, builder: null, progress: 0, block: 0 });
+      need(['haul']); saveDirty = true;
+    });
+  });
+  var TIPS = { upgrade: 'Коснись своего посёлка — за 10 дров он даст второй вид людей.', chop: 'Касайся леса — отметишь деревья для лесорубов, повторное касание снимает. Касание мимо леса ведёт богатыря.',
+               camp: 'Коснись луга или поля — появится разметка лагеря 2×2. Касание по разметке стройки предложит её отменить.',
+               bridge: 'Коснись реки — нужно 5 дров, носильщики и строитель.' };
+  Array.prototype.forEach.call(document.querySelectorAll('#bar button'), function (b) {
+    b.addEventListener('click', function () {
+      setMode(mode === b.dataset.mode ? null : b.dataset.mode);
+    });
+  });
+  document.getElementById('toggle').addEventListener('click', function () { setView(view === 'world' ? 'map' : 'world'); });
+  function setView(v) {
+    view = v; mapT = 0;
+    document.body.classList.toggle('map', v === 'map');
+    document.getElementById('toggle').textContent = v === 'map' ? 'Мир' : 'Карта';
+  }
+  var ng = document.getElementById('newgame'), ngArmed = 0;
+  ng.addEventListener('click', function () {
+    if (!ngArmed) { ng.textContent = 'Точно? Нажми ещё раз'; ngArmed = setTimeout(function () { ngArmed = 0; ng.textContent = 'Новая игра'; }, 2500); return; }
+    clearTimeout(ngArmed); ngArmed = 0; ng.textContent = 'Новая игра';
+    newGame((Math.random() * 1e9) | 0); reveal(hero.x, hero.y, REVEAL);
+    for (var i = 0; i < N * N; i++) fogA[i] = fogT[i];
+    setView('world'); dirtyHud = true; save();
+  });
+
+  // ---------- ввод ----------
+  var camx = 0, camy = 0, pointerDown = false, mapGeo = { k: 1, ox: 0, oy: 0 };
+  function onPoint(e, first) {
+    var r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+    if (view === 'map') {
+      if (!first) return;
+      var tx = (px - mapGeo.ox) / (TS * mapGeo.k), ty = (py - mapGeo.oy) / (TS * mapGeo.k);
+      if (inb(Math.floor(tx), Math.floor(ty)) && known(idx(Math.floor(tx), Math.floor(ty)))) {
+        target = { x: tx, y: ty, t: performance.now() }; heroPath(); setView('world'); pointerDown = false;
+      }
+      return;
+    }
+    var wx = (px + camx) / TS, wy = (py + camy) / TS;
+    if (mode) {
+      if (first) heroTap = !order(wx, wy);
+      if (!heroTap) return;
+    }
+    target = { x: Math.max(0.2, Math.min(N - 0.2, wx)), y: Math.max(0.2, Math.min(N - 0.2, wy)), t: performance.now() };
+    heroPath();
+    if (first && !helpers.length) tip('');
+  }
+  canvas.addEventListener('pointerdown', function (e) { pointerDown = true; try { canvas.setPointerCapture(e.pointerId); } catch (er) {} onPoint(e, true); });
+  var lastMove = 0;
+  canvas.addEventListener('pointermove', function (e) { if (pointerDown && e.timeStamp - lastMove > 120) { lastMove = e.timeStamp; onPoint(e, false); } });
+  canvas.addEventListener('pointerup', function () { pointerDown = false; });
+  canvas.addEventListener('pointercancel', function () { pointerDown = false; });
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    chunks.clear(); mapT = 0;
+  }
+  window.addEventListener('resize', resize);
+
+  // ---------- отрисовка: статичные куски мира ----------
+  function strokeP(c, p, col, w) { c.strokeStyle = col; c.lineWidth = w; c.stroke(p); }
+  function renderChunk(cx, cy) {
+    var cv = document.createElement('canvas'); cv.width = cv.height = Math.round(CH * dpr);
+    var c = cv.getContext('2d'), X0 = cx * CH, Y0 = cy * CH, k, x, y;
+    c.scale(dpr, dpr); c.translate(-X0, -Y0);
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    c.fillStyle = '#86bd5d'; c.fillRect(X0, Y0, CH, CH);
+    blotches.forEach(function (b) {
+      if (b[0] + b[2] < X0 || b[0] - b[2] > X0 + CH || b[1] + b[2] < Y0 || b[1] - b[2] > Y0 + CH) return;
+      c.fillStyle = b[3] ? 'rgba(141,196,100,.55)' : 'rgba(128,183,88,.55)';
+      c.beginPath(); c.arc(b[0], b[1], b[2], 0, 6.3); c.fill();
+    });
+    c.fillStyle = '#a3b672'; c.fill(P.H5); c.fillStyle = '#b0c080'; c.fill(P.H8);
+    c.fillStyle = '#74ad5a'; c.fill(P.F45); c.fillStyle = '#609b4b'; c.fill(P.F6);
+    c.fillStyle = '#dcc35c'; c.fill(P.W5); strokeP(c, P.W5, '#c6aa46', 2);
+    c.save(); c.clip(P.W5); c.strokeStyle = 'rgba(150,115,30,.3)'; c.lineWidth = 1.6; c.beginPath();
+    for (k = Math.floor((Y0 - CH) / 9); k < (Y0 + CH * 2) / 9; k++) { c.moveTo(X0 - 20, k * 9 + (X0 - 20) * -0.4); c.lineTo(X0 + CH + 20, k * 9 + (X0 + CH + 20) * -0.4); }
+    c.stroke(); c.restore();
+    c.fillStyle = '#ead9a0'; c.fill(P.L5); strokeP(c, P.L5, '#ead9a0', 11);
+    function riverPass(col, extra) {
+      rivers.forEach(function (r) {
+        var n = r.pts.length; c.strokeStyle = col;
+        for (var q = 1; q < n; q++) {
+          var a = r.pts[q - 1], b = r.pts[q];
+          if (Math.max(a[0], b[0]) < X0 - 30 || Math.min(a[0], b[0]) > X0 + CH + 30 || Math.max(a[1], b[1]) < Y0 - 30 || Math.min(a[1], b[1]) > Y0 + CH + 30) continue;
+          c.lineWidth = Math.max(0.5, 5 + 11 * Math.pow(q / n, 0.8) + extra);
+          c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+        }
+      });
+    }
+    riverPass('#ead9a0', 7);
+    roads.forEach(function (rd) { strokeP(c, rd.path, '#a68352', 13); });
+    roads.forEach(function (rd) { strokeP(c, rd.path, '#d8ba86', 9.5); });
+    c.fillStyle = '#55a4da'; c.fill(P.L5); c.fillStyle = '#4b99d2'; c.fill(P.L7); c.fillStyle = '#4290ca'; c.fill(P.L9);
+    riverPass('#55a4da', 0);
+    rivers.forEach(function (r) { strokeP(c, r.path, 'rgba(205,236,255,.4)', 1.5); });
+    var tx0 = Math.max(0, Math.floor(X0 / TS) - 1), tx1 = Math.min(N, Math.ceil((X0 + CH) / TS) + 1);
+    var ty0 = Math.max(0, Math.floor(Y0 / TS) - 1), ty1 = Math.min(N, Math.ceil((Y0 + CH) / TS) + 1);
+    for (y = ty0; y < ty1; y++) for (x = tx0; x < tx1; x++) {
+      var i = idx(x, y), b = biome[i], px = x * TS, py = y * TS, h1 = hash(x * 3 + 1, y * 5 + 2);
+      if (b === LAKE && at(x - 1, y) === LAKE && at(x + 1, y) === LAKE && at(x, y - 1) === LAKE && at(x, y + 1) === LAKE && h1 < 0.6) {
+        var wx = px + 8 + h1 * 20, wy = py + 10 + hash(y, x) * 20;
+        c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 1.5; c.beginPath();
+        c.moveTo(wx, wy); c.quadraticCurveTo(wx + 4, wy - 3, wx + 8, wy); c.quadraticCurveTo(wx + 12, wy + 3, wx + 16, wy); c.stroke();
+      }
+      if (b === MEADOW && !road[i] && !cleared[i]) {
+        if (h1 < 0.3) {
+          var gx = px + 8 + hash(x, y + 77) * 24, gy = py + 12 + hash(x + 77, y) * 22;
+          c.strokeStyle = '#5c9443'; c.lineWidth = 1.6; c.beginPath();
+          c.moveTo(gx, gy); c.lineTo(gx - 3, gy - 7); c.moveTo(gx, gy); c.lineTo(gx, gy - 9); c.moveTo(gx, gy); c.lineTo(gx + 3, gy - 7); c.stroke();
+        } else if (h1 > 0.88) {
+          for (k = 0; k < 4; k++) {
+            c.fillStyle = ['#fff', '#ffd94a', '#e8544a'][(k + x) % 3];
+            c.beginPath(); c.arc(px + 6 + hash(x + k, y + 41) * 28, py + 6 + hash(x + 41, y + k) * 28, 1.9, 0, 6.3); c.fill();
+          }
+        }
+      }
+      if (cleared[i]) for (k = 0; k < 3; k++) {
+        var sx = px + 7 + hash(x + k * 17, y + 3) * 26, sy = py + 12 + hash(x + 5, y + k * 29) * 22;
+        c.fillStyle = '#7a5830'; c.beginPath(); c.ellipse(sx, sy, 4, 2.6, 0, 0, 6.3); c.fill();
+        c.fillStyle = '#d8b98a'; c.beginPath(); c.ellipse(sx, sy - 1.5, 3.4, 2, 0, 0, 6.3); c.fill();
+      }
+    }
+    return cv;
+  }
+  function getChunk(cx, cy) {
+    var key = cx + ',' + cy, c = chunks.get(key);
+    if (!c) {
+      c = renderChunk(cx, cy); chunks.set(key, c);
+      if (chunks.size > 20) chunks.delete(chunks.keys().next().value);
+    }
+    return c;
+  }
+
+  // ---------- спрайты и объекты ----------
+  var sprites = {};
+  function sprite(name, w, h, fn) {
+    if (sprites[name] && sprites[name].d === dpr) return sprites[name];
+    var cv = document.createElement('canvas'); cv.width = Math.ceil(w * dpr); cv.height = Math.ceil(h * dpr);
+    var c = cv.getContext('2d'); c.scale(dpr, dpr); c.translate(w / 2, h - 5); fn(c);
+    cv.d = dpr; cv.w = w; cv.h = h; sprites[name] = cv; return cv;
+  }
+  function tri(c, x, y, w, h) { c.beginPath(); c.moveTo(x - w, y); c.lineTo(x, y - h); c.lineTo(x + w, y); c.closePath(); c.fill(); }
+  function treeSprite(type) {
+    return sprite('tree' + type, 30, 44, function (c) {
+      c.fillStyle = 'rgba(20,50,20,.22)'; c.beginPath(); c.ellipse(0, 0, 10, 3.8, 0, 0, 6.3); c.fill();
+      c.fillStyle = '#6b4a2a'; c.fillRect(-1.6, -9, 3.2, 9);
+      if (type) { c.fillStyle = '#2f6b3a'; tri(c, 0, -5, 11, 15); c.fillStyle = '#39794a'; tri(c, 0, -14, 9, 13); c.fillStyle = '#44895a'; tri(c, 0, -22, 6, 11); }
+      else { c.fillStyle = '#3f8440'; c.beginPath(); c.arc(0, -18, 11, 0, 6.3); c.fill(); c.fillStyle = '#58a04f'; c.beginPath(); c.arc(-3, -21, 6, 0, 6.3); c.fill(); }
+    });
+  }
+  function drawSprite(s, x, y) { ctx.drawImage(s, x - s.w / 2, y - s.h + 5, s.w, s.h); }
+  function hut(x, y, s, thatch) {
+    ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(x, y, 11 * s, 3.5 * s, 0, 0, 6.3); ctx.fill();
+    ctx.fillStyle = '#a9773f'; ctx.fillRect(x - 8 * s, y - 10 * s, 16 * s, 10 * s);
+    ctx.strokeStyle = 'rgba(80,50,20,.5)'; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.moveTo(x - 8 * s, y - 6.6 * s); ctx.lineTo(x + 8 * s, y - 6.6 * s); ctx.moveTo(x - 8 * s, y - 3.3 * s); ctx.lineTo(x + 8 * s, y - 3.3 * s); ctx.stroke();
+    ctx.fillStyle = thatch ? '#c9a23c' : '#7b4a2a';
+    ctx.beginPath(); ctx.moveTo(x - 11 * s, y - 9.5 * s); ctx.lineTo(x, y - 20 * s); ctx.lineTo(x + 11 * s, y - 9.5 * s); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#4a2f18'; ctx.fillRect(x - 2 * s, y - 6 * s, 4 * s, 6 * s);
+  }
+  function flag(x, y, h, t) {
+    ctx.strokeStyle = '#5a3d22'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h); ctx.stroke();
+    var w = Math.sin(t * 3 + x) * 2;
+    ctx.fillStyle = '#c62828'; ctx.beginPath(); ctx.moveTo(x, y - h); ctx.quadraticCurveTo(x + 8, y - h - 2 + w, x + 16, y - h + 3 + w);
+    ctx.lineTo(x + 15, y - h + 10 + w); ctx.quadraticCurveTo(x + 7, y - h + 7 + w, x, y - h + 10); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#e0b84a'; ctx.beginPath(); ctx.arc(x + 7, y - h + 5 + w * 0.6, 2, 0, 6.3); ctx.fill();
+  }
+  function small(text, x, y) {
+    ctx.font = '500 10px -apple-system, "Segoe UI", Roboto, sans-serif';
+    var tw = ctx.measureText(text).width + 10;
+    ctx.fillStyle = 'rgba(247,236,208,.85)'; rr(x - tw / 2, y, tw, 14, 4); ctx.fill();
+    ctx.fillStyle = '#5a4528'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, x, y + 7.5);
+  }
+  function label(text, x, y, sub) {
+    ctx.font = '600 11px -apple-system, "Segoe UI", Roboto, sans-serif';
+    var tw = ctx.measureText(text).width + 12;
+    ctx.fillStyle = 'rgba(247,236,208,.92)'; ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = 1;
+    rr(x - tw / 2, y, tw, 17, 5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = sub ? '#8f1d14' : '#3a2a17'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y + 9);
+  }
+  function rr(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  }
+  function drawVillage(v, t) {
+    var x = (v.x + 0.5) * TS, y = (v.y + 0.5) * TS;
+    hut(x - 15, y - 6, 1, 0); hut(x + 14, y - 3, 0.95, 1);
+    if (v.claimed) flag(x, y - 2, 40, t);
+    hut(x - 2, y + 13, 1.1, 1);
+    if (v.wood) logStack(x + 22, y + 15, v.wood);
+  }
+  function stake(sx, sy, k) {
+    ctx.fillStyle = k % 2 ? '#9a6b3a' : '#8a5d30';
+    ctx.beginPath(); ctx.moveTo(sx - 3, sy); ctx.lineTo(sx - 3, sy - 15); ctx.lineTo(sx, sy - 20); ctx.lineTo(sx + 3, sy - 15); ctx.lineTo(sx + 3, sy); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(40,25,10,.25)'; ctx.fillRect(sx + 1, sy - 15, 2, 15);
+  }
+  function logStack(x, y, n) {
+    var rows = [4, 3, 2, 1], k = 0;
+    for (var r = 0; r < rows.length && k < n; r++) for (var c = 0; c < rows[r] && k < n; c++, k++) {
+      var lx = x + (c - (rows[r] - 1) / 2) * 7.2, ly = y - r * 5.6;
+      ctx.fillStyle = '#8a5d30'; ctx.beginPath(); ctx.ellipse(lx, ly, 3.8, 3, 0, 0, 6.3); ctx.fill();
+      ctx.fillStyle = '#d8b98a'; ctx.beginPath(); ctx.ellipse(lx, ly, 2.3, 1.8, 0, 0, 6.3); ctx.fill();
+    }
+  }
+  function drawCamp(cm, t) {
+    var x = (cm.x + 1) * TS, y = (cm.y + 1) * TS, k;
+    ctx.fillStyle = 'rgba(150,115,60,.35)'; ctx.beginPath(); ctx.ellipse(x, y + 4, 38, 30, 0, 0, 6.3); ctx.fill();
+    for (k = 0; k <= 10; k++) stake(x - 36 + k * 7.2, y - 24, k);
+    for (k = 1; k <= 6; k++) { stake(x - 36, y - 24 + k * 8.5, k); stake(x + 36, y - 24 + k * 8.5, k + 1); }
+    // терем
+    var hx = x - 9, hy = y + 4;
+    ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(hx, hy, 15, 4, 0, 0, 6.3); ctx.fill();
+    ctx.fillStyle = '#a9773f'; ctx.fillRect(hx - 12, hy - 20, 24, 20);
+    ctx.strokeStyle = 'rgba(80,50,20,.5)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (k = 1; k < 4; k++) { ctx.moveTo(hx - 12, hy - k * 5); ctx.lineTo(hx + 12, hy - k * 5); } ctx.stroke();
+    ctx.fillStyle = '#7b4a2a'; ctx.beginPath(); ctx.moveTo(hx - 16, hy - 19); ctx.lineTo(hx, hy - 34); ctx.lineTo(hx + 16, hy - 19); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#4a2f18'; ctx.fillRect(hx - 3, hy - 9, 6, 9);
+    flag(hx, hy - 32, 16, t);
+    // склад
+    logStack(x + 17, y + 10, Math.min(cm.wood, 10));
+    // передний ряд с воротами
+    for (k = 0; k <= 10; k++) { var sx = x - 36 + k * 7.2; if (Math.abs(sx - x) > 6) stake(sx, y + 30, k); }
+    ctx.fillStyle = '#5a3d22'; ctx.fillRect(x - 9, y + 8, 3, 22); ctx.fillRect(x + 6, y + 8, 3, 22); ctx.fillRect(x - 9, y + 8, 18, 3);
+  }
+  function drawPile(i) {
+    var p = piles.get(i), x = (i % N + 0.5) * TS + 10, y = (((i / N) | 0) + 0.5) * TS + 12, n = Math.min(p.count, 6), k;
+    for (k = 0; k < n; k++) {
+      var lx = x - 7 + (k % 3) * 7 + (k >= 3 ? 3.5 : 0), ly = y - (k >= 3 ? 5 : 0);
+      ctx.fillStyle = p.age > ROT_T ? '#5d5a3c' : '#8a5d30'; ctx.beginPath(); ctx.ellipse(lx, ly, 4, 3.2, 0, 0, 6.3); ctx.fill();
+      ctx.fillStyle = p.age > ROT_T ? '#9c9a6c' : '#d8b98a'; ctx.beginPath(); ctx.ellipse(lx, ly, 2.4, 1.9, 0, 0, 6.3); ctx.fill();
+    }
+    if (p.count > 1) { ctx.font = '700 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(247,236,208,.9)'; ctx.strokeText(p.count, x + 2, y - 13); ctx.fillStyle = '#3a2a17'; ctx.fillText(p.count, x + 2, y - 13); }
+  }
+  function drawBridge(x, y, ghost) {
+    var j = jit(x, y), px = (x + 0.5 + j[0]) * TS, py = (y + 0.5 + j[1]) * TS, k;
+    var hR = isWater(x - 1, y) || isWater(x + 1, y), vR = isWater(x, y - 1) || isWater(x, y + 1);
+    var rot = hR && !vR ? Math.PI / 2 : (!hR && vR ? 0 : (isWater(x - 1, y) ? Math.PI / 2 : 0));
+    ctx.save(); ctx.translate(px, py); ctx.rotate(rot); ctx.globalAlpha = ghost ? 0.45 : 1;
+    ctx.fillStyle = '#b98b4e'; ctx.strokeStyle = '#7a5830'; ctx.lineWidth = 1.2;
+    ctx.fillRect(-22, -9, 44, 18); ctx.strokeRect(-22, -9, 44, 18);
+    ctx.strokeStyle = 'rgba(90,60,25,.5)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (k = -16; k <= 16; k += 6.4) { ctx.moveTo(k, -8); ctx.lineTo(k, 8); } ctx.stroke();
+    ctx.strokeStyle = '#6b4a2a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-23, -9.5); ctx.lineTo(23, -9.5); ctx.moveTo(-23, 9.5); ctx.lineTo(23, 9.5); ctx.stroke();
+    ctx.restore();
+  }
+  function drawSite(s) {
+    if (s.type === 'upgrade') return;
+    if (s.type === 'bridge') drawBridge(s.x, s.y, true);
+    var b = big(s), x0 = s.x * TS, y0 = s.y * TS, w = (b ? 2 : 1) * TS;
+    if (b) { ctx.fillStyle = 'rgba(150,115,60,.18)'; rr(x0 + 3, y0 + 3, w - 6, w - 6, 8); ctx.fill(); }
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = '#8f1d14'; ctx.lineWidth = 2;
+    rr(x0 + 3, y0 + 3, w - 6, w - 6, 7); ctx.stroke(); ctx.setLineDash([]);
+    if (b && s.delivered) logStack(x0 + TS, y0 + TS + 10, Math.min(s.delivered, 10));
+  }
+  function drawPlan(t) {
+    if (!plan) return;
+    var b = big(plan), x0 = plan.x * TS, y0 = plan.y * TS, w = (b ? 2 : 1) * TS;
+    if (plan.type === 'bridge') drawBridge(plan.x, plan.y, true);
+    ctx.fillStyle = 'rgba(255,240,200,.28)'; rr(x0 + 2, y0 + 2, w - 4, w - 4, 8); ctx.fill();
+    ctx.setLineDash([8, 6]); ctx.lineDashOffset = -t * 20; ctx.strokeStyle = '#fff6dc'; ctx.lineWidth = 4;
+    rr(x0 + 2, y0 + 2, w - 4, w - 4, 8); ctx.stroke();
+    ctx.strokeStyle = '#8f1d14'; ctx.lineWidth = 2.2; ctx.stroke(); ctx.setLineDash([]); ctx.lineDashOffset = 0;
+  }
+  function drawSiteLabel(s) {
+    var b = big(s), x = (s.x + (b ? 1 : 0.5)) * TS, y = (s.y + 0.5) * TS + (b ? 6 : 0);
+    if (s.type === 'upgrade') y -= 26;
+    if (s.delivered < s.need) label(countSkill('haul') ? 'дрова ' + s.delivered + '/' + s.need : 'нет носильщиков', x, y - 34, true);
+    else if (!countSkill('build')) label('нет строителей', x, y - 34, true);
+    else {
+      ctx.fillStyle = 'rgba(247,236,208,.92)'; ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = 1; rr(x - 20, y - 30, 40, 8, 3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#8f1d14'; ctx.fillRect(x - 19, y - 29, 38 * Math.min(1, s.progress), 6);
+    }
+  }
+  function drawOrder(o) {
+    var x = (o.x + 0.5) * TS, y = (o.y + 0.5) * TS;
+    ctx.fillStyle = 'rgba(247,236,208,.85)'; ctx.strokeStyle = '#8f1d14'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, 9, 0, 6.3); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#6b4a2a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - 4, y + 5); ctx.lineTo(x + 3, y - 4); ctx.stroke();
+    ctx.fillStyle = '#8a8f98'; ctx.beginPath(); ctx.moveTo(x + 1, y - 6); ctx.lineTo(x + 6, y - 3); ctx.lineTo(x + 3, y); ctx.closePath(); ctx.fill();
+  }
+  function drawFire(i, t) {
+    var x = (i % N + 0.5) * TS, y = (((i / N) | 0) + 0.5) * TS + 12, k;
+    ctx.fillStyle = 'rgba(255,150,40,.22)'; ctx.beginPath(); ctx.arc(x, y - 10, 26 + Math.sin(t * 9) * 3, 0, 6.3); ctx.fill();
+    for (k = 0; k < 4; k++) {
+      var fx = x - 12 + k * 8, h = 16 + Math.sin(t * 11 + k * 1.7) * 6 + (k % 2) * 6, w = 6;
+      ctx.fillStyle = '#e8541e'; ctx.beginPath(); ctx.moveTo(fx - w, y); ctx.quadraticCurveTo(fx - w, y - h * 0.6, fx + Math.sin(t * 7 + k) * 3, y - h); ctx.quadraticCurveTo(fx + w, y - h * 0.6, fx + w, y); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ffc93a'; ctx.beginPath(); ctx.moveTo(fx - w * 0.5, y); ctx.quadraticCurveTo(fx - w * 0.5, y - h * 0.35, fx, y - h * 0.6); ctx.quadraticCurveTo(fx + w * 0.5, y - h * 0.35, fx + w * 0.5, y); ctx.closePath(); ctx.fill();
+    }
+    for (k = 0; k < 3; k++) {
+      var a = (t * 0.7 + k / 3) % 1;
+      ctx.fillStyle = 'rgba(70,70,70,' + (0.35 * (1 - a)) + ')'; ctx.beginPath(); ctx.arc(x + Math.sin(k * 2 + a * 4) * 6, y - 24 - a * 34, 5 + a * 8, 0, 6.3); ctx.fill();
+    }
+  }
+  var ROLE = { chop: '#3f7d3a', haul: '#3a6ea8', build: '#c9772c', '': '#8a7a5a' };
+  function drawHelper(h) {
+    var x = h.x * TS, y = h.y * TS + 4, sw = h.moving ? Math.sin(h.ph) * 3 : 0, work = h.state === 'work';
+    ctx.save(); ctx.translate(x, y); ctx.scale(h.dir, 1); ctx.lineCap = 'round';
+    ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(0, 0, 6, 2.2, 0, 0, 6.3); ctx.fill();
+    ctx.strokeStyle = '#4a3b2a'; ctx.lineWidth = 2.2; ctx.beginPath();
+    ctx.moveTo(-1.5, -6); ctx.lineTo(-1.5 + sw, 0); ctx.moveTo(1.5, -6); ctx.lineTo(1.5 - sw, 0); ctx.stroke();
+    ctx.fillStyle = ROLE[h.skill]; ctx.fillRect(-3.5, -14, 7, 9);
+    ctx.fillStyle = '#f0c9a0'; ctx.beginPath(); ctx.arc(0, -17, 3.2, 0, 6.3); ctx.fill();
+    ctx.fillStyle = '#6b4a2a'; ctx.beginPath(); ctx.arc(0, -18.3, 3.3, Math.PI, 0); ctx.fill();
+    if (h.carrying) { ctx.fillStyle = '#8a5d30'; ctx.fillRect(-7, -17.5, 13, 4); ctx.fillStyle = '#d8b98a'; ctx.beginPath(); ctx.ellipse(6, -15.5, 1.6, 2, 0, 0, 6.3); ctx.fill(); }
+    if (h.skill === 'chop' || h.skill === 'build') {
+      var a = work ? -0.9 + Math.abs(Math.sin(h.ph * 0.5)) * 1.5 : -0.5;
+      ctx.save(); ctx.translate(3, -11); ctx.rotate(a);
+      ctx.strokeStyle = '#6b4a2a'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -10); ctx.stroke();
+      ctx.fillStyle = '#8a8f98';
+      if (h.skill === 'chop') { ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(5, -11); ctx.lineTo(5, -6); ctx.lineTo(0, -7); ctx.closePath(); ctx.fill(); }
+      else ctx.fillRect(-2.5, -12, 6, 3.4);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+  function drawHero(t) {
+    var moving = hero.moving, ph = hero.ph, k;
+    var bob = moving ? Math.sin(ph * 2) * 1.6 : Math.sin(t * 2) * 0.5;
+    ctx.save(); ctx.translate(hero.x * TS, hero.y * TS + 6); ctx.scale(hero.dir * 1.05, 1.05);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(1, 0, 19, 5, 0, 0, 6.3); ctx.fill();
+    var legs = [[-12, 0], [-7, 3.14], [8, 1.6], [13, 4.7]];
+    for (k = 0; k < 4; k++) {
+      var sw = moving ? Math.sin(ph + legs[k][1]) : 0, lift = moving ? Math.max(0, Math.cos(ph + legs[k][1])) * 3 : 0;
+      ctx.strokeStyle = k % 2 ? '#7a4c24' : '#6a401d'; ctx.lineWidth = 3.4;
+      ctx.beginPath(); ctx.moveTo(legs[k][0], -15 + bob); ctx.lineTo(legs[k][0] + sw * 5, -1 - lift); ctx.stroke();
+      ctx.strokeStyle = '#2a1a0c'; ctx.lineWidth = 3.6;
+      ctx.beginPath(); ctx.moveTo(legs[k][0] + sw * 5, -2 - lift); ctx.lineTo(legs[k][0] + sw * 5, -0.5 - lift); ctx.stroke();
+    }
+    ctx.translate(0, bob);
+    var sway = moving ? Math.sin(ph * 1.5) * 3 : Math.sin(t * 1.5) * 1.2;
+    ctx.strokeStyle = '#3b2413'; ctx.lineWidth = 4.5; ctx.beginPath(); ctx.moveTo(-16, -23); ctx.quadraticCurveTo(-27 - sway, -22, -24 - sway, -8); ctx.stroke();
+    ctx.fillStyle = '#c62828'; ctx.beginPath(); ctx.moveTo(-2, -46); ctx.lineTo(-17 - sway, -31); ctx.lineTo(-13 - sway * 0.5, -24); ctx.lineTo(-2, -28); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#8b5a2b'; ctx.beginPath(); ctx.ellipse(0, -21, 17, 9, 0, 0, 6.3); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(8, -27); ctx.lineTo(17, -42); ctx.lineTo(25, -37); ctx.lineTo(16, -17); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(23.5, -38, 7.5, 4.6, 0.55, 0, 6.3); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(17, -42); ctx.lineTo(18, -48); ctx.lineTo(21, -42); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#1c1008'; ctx.beginPath(); ctx.arc(23, -40, 1, 0, 6.3); ctx.fill();
+    ctx.strokeStyle = '#3b2413'; ctx.lineWidth = 3.6; ctx.beginPath(); ctx.moveTo(16.5, -43); ctx.lineTo(8.5, -28); ctx.stroke();
+    ctx.strokeStyle = '#b3261e'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(25, -35); ctx.lineTo(4, -32); ctx.stroke();
+    ctx.fillStyle = '#b3261e'; ctx.fillRect(-8, -29, 14, 10); ctx.strokeStyle = '#e0b84a'; ctx.lineWidth = 1.2; ctx.strokeRect(-8, -29, 14, 10);
+    ctx.strokeStyle = '#3f3558'; ctx.lineWidth = 4.2; ctx.beginPath(); ctx.moveTo(0, -27); ctx.lineTo(3, -14); ctx.stroke();
+    ctx.strokeStyle = '#a3211a'; ctx.lineWidth = 3.6; ctx.beginPath(); ctx.moveTo(3, -14); ctx.lineTo(6.5, -13); ctx.stroke();
+    ctx.strokeStyle = '#6b4a2a'; ctx.lineWidth = 1.7; ctx.beginPath(); ctx.moveTo(6, -22); ctx.lineTo(11, -70); ctx.stroke();
+    ctx.fillStyle = '#d5dae0'; ctx.beginPath(); ctx.moveTo(9.4, -70); ctx.lineTo(11.8, -78); ctx.lineTo(12.8, -69.6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#c62828'; ctx.beginPath(); ctx.moveTo(10.6, -67); ctx.lineTo(1 - sway * 0.6, -64); ctx.lineTo(10.2, -61); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#a9b4c0'; ctx.fillRect(-5, -46, 10, 18); ctx.fillStyle = '#7d5a2a'; ctx.fillRect(-5, -33, 10, 2);
+    ctx.fillStyle = '#c62828'; ctx.strokeStyle = '#e0b84a'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(-4.5, -42); ctx.quadraticCurveTo(2, -45, 8.5, -42); ctx.quadraticCurveTo(8.5, -31, 2, -26); ctx.quadraticCurveTo(-4.5, -31, -4.5, -42); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#e0b84a'; ctx.beginPath(); ctx.arc(2, -37, 2, 0, 6.3); ctx.fill();
+    ctx.fillStyle = '#f0c9a0'; ctx.beginPath(); ctx.arc(0.5, -50, 4.3, 0, 6.3); ctx.fill();
+    ctx.fillStyle = '#7a4a22'; ctx.beginPath(); ctx.moveTo(-1.5, -49.5); ctx.quadraticCurveTo(4, -41, 5, -50); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#cdd3da'; ctx.strokeStyle = '#8a8f98'; ctx.lineWidth = 0.9;
+    ctx.beginPath(); ctx.moveTo(-4.4, -51); ctx.quadraticCurveTo(-3.5, -58, 0.5, -64); ctx.quadraticCurveTo(4.5, -58, 5.4, -51); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#e0b84a'; ctx.lineWidth = 1.3; ctx.beginPath(); ctx.moveTo(-4.4, -51.3); ctx.lineTo(5.4, -51.3); ctx.stroke();
+    ctx.restore();
+  }
+  function mound(x, y, w, h, fill) {
+    ctx.fillStyle = fill; ctx.beginPath(); ctx.moveTo(x - w, y);
+    ctx.bezierCurveTo(x - w * 0.5, y - h * 1.3, x + w * 0.5, y - h * 1.3, x + w, y); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(60,75,35,.45)'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,220,.38)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x - w * 0.25, y - h * 0.45, w * 0.35, 3.6, 5.0); ctx.stroke();
+  }
+  function decor(x, y) {
+    var i = idx(x, y), b = biome[i], px = x * TS, py = y * TS, k;
+    if (campMask[i] || siteAt(x, y) || (plan && plan.type === 'camp' && foot(plan).indexOf(i) >= 0)) return;
+    if (b === FOREST) {
+      var list = [];
+      for (k = 0; k < trees[i]; k++) list.push([px + 6 + hash(x + k * 17, y + 3) * (TS - 12), py + 14 + hash(x + 5, y + k * 29) * (TS - 14), hash(x + k * 7, y + k * 11) < 0.55 ? 1 : 0]);
+      list.sort(function (a, b2) { return a[1] - b2[1]; });
+      for (k = 0; k < list.length; k++) drawSprite(treeSprite(list[k][2]), list[k][0], list[k][1]);
+    } else if (b === HILLS && !road[i]) {
+      mound(px + 12 + hash(x + 13, y + 7) * 16, py + 24 + hash(x + 9, y) * 4, 16 + hash(x, y + 21) * 7, 16 + hash(x + 33, y) * 9, '#869b5a');
+      if (hash(x + 4, y + 8) < 0.6) mound(px + 14 + hash(x + 26, y + 7) * 16, py + 38, 14 + hash(x + 1, y + 21) * 6, 13 + hash(x + 33, y + 1) * 7, '#93a862');
+    } else if (b === FIELD && hash(x * 3 + 1, y * 5 + 2) < 0.06 && !road[i]) {
+      var sx = px + TS / 2, sy = py + TS * 0.75;
+      ctx.fillStyle = 'rgba(80,60,10,.2)'; ctx.beginPath(); ctx.ellipse(sx, sy, 12, 4, 0, 0, 6.3); ctx.fill();
+      ctx.fillStyle = '#c9a23c'; ctx.beginPath(); ctx.moveTo(sx - 10, sy); ctx.bezierCurveTo(sx - 9, sy - 20, sx + 9, sy - 20, sx + 10, sy); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#a07d28'; ctx.lineWidth = 1; ctx.stroke();
+    }
+  }
+  function drawFog(t, x0, y0, x1, y1) {
+    var d = fogImg.data;
+    for (var y = y0; y < y1; y++) for (var x = x0; x < x1; x++) {
+      var i = idx(x, y), a = fogA[i], o = i * 4;
+      if (a <= 0.001) { d[o + 3] = 0; continue; }
+      var l = 12 * (Math.sin(x * 0.55 + t * 0.35) * Math.cos(y * 0.5 - t * 0.27) + Math.sin((x + y) * 0.23 + t * 0.2));
+      d[o] = 190 + l; d[o + 1] = 198 + l; d[o + 2] = 208 + l; d[o + 3] = a * 255;
+    }
+    fctx.putImageData(fogImg, 0, 0);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(fogC, x0, y0, x1 - x0, y1 - y0, x0 * TS, y0 * TS, (x1 - x0) * TS, (y1 - y0) * TS);
+  }
+  function drawWorld(t) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var mw = N * TS, x, y, k;
+    camx = W >= mw ? (mw - W) / 2 : Math.max(0, Math.min(mw - W, hero.x * TS - W / 2));
+    camy = H >= mw ? (mw - H) / 2 : Math.max(0, Math.min(mw - H, hero.y * TS - H / 2));
+    var ox = Math.round(camx * dpr) / dpr, oy = Math.round(camy * dpr) / dpr;
+    ctx.fillStyle = '#b9c2cc'; ctx.fillRect(0, 0, W, H);
+    ctx.translate(-ox, -oy);
+    for (var cy = Math.max(0, Math.floor(camy / CH)); cy * CH < Math.min(mw, camy + H); cy++)
+      for (var cx = Math.max(0, Math.floor(camx / CH)); cx * CH < Math.min(mw, camx + W); cx++)
+        ctx.drawImage(getChunk(cx, cy), cx * CH, cy * CH, CH, CH);
+    var x0 = Math.max(0, Math.floor(camx / TS) - 1), x1 = Math.min(N, Math.ceil((camx + W) / TS) + 1);
+    var y0 = Math.max(0, Math.floor(camy / TS) - 1), y1 = Math.min(N, Math.ceil((camy + H) / TS) + 2);
+    for (y = y0; y < y1; y++) for (x = x0; x < x1; x++) if (bridge[idx(x, y)]) drawBridge(x, y, false);
+    sites.forEach(drawSite);
+    drawPlan(t);
+    if (target && !mode) {
+      var age = (performance.now() - target.t) / 1000, r = 7 + Math.sin(age * 6) * 2;
+      ctx.strokeStyle = 'rgba(143,29,20,.8)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(target.x * TS, target.y * TS, r * 1.3, r * 0.65, 0, 0, 6.3); ctx.stroke();
+    }
+    var rows = {};
+    function put(yy, fn) { var r2 = Math.floor(yy); (rows[r2] = rows[r2] || []).push(fn); }
+    put(hero.y, function () { drawHero(t); });
+    helpers.forEach(function (h) { if (h.state !== 'in') put(h.y, function () { drawHelper(h); }); });
+    villages.forEach(function (v) { put(v.y + 0.9, function () { drawVillage(v, t); }); });
+    camps.forEach(function (c) { put(c.y + 1.95, function () { drawCamp(c, t); }); });
+    piles.forEach(function (p, i) { put((i / N) | 0, function () { drawPile(i); }); });
+    fires.forEach(function (f, i) { put(((i / N) | 0) + 0.99, function () { drawFire(i, t); }); });
+    for (y = y0; y < y1; y++) {
+      for (x = x0; x < x1; x++) if (fogA[idx(x, y)] < 0.99) decor(x, y);
+      if (rows[y]) for (k = 0; k < rows[y].length; k++) rows[y][k]();
+    }
+    orders.forEach(drawOrder);
+    drawFog(t, x0, y0, x1, y1);
+    villages.forEach(function (v) {
+      if (!known(idx(v.x, v.y))) return;
+      var n = 0; helpers.forEach(function (h) { if (h.home === v && h.state === 'in') n++; });
+      var tn = TNAME[v.type] + (v.type2 ? ' + ' + TNAME[v.type2] : '');
+      label(v.name + ' · ' + tn, (v.x + 0.5) * TS, (v.y + 0.5) * TS + 22, !v.claimed);
+      if (v.claimed) small('амбар ' + v.wood + '/' + VSTORE + ' · дома ' + n, (v.x + 0.5) * TS, (v.y + 0.5) * TS + 40);
+    });
+    camps.forEach(function (c) {
+      var n = 0; helpers.forEach(function (h) { if (h.home === c && h.state === 'in') n++; });
+      label('Лагерь', (c.x + 1) * TS, (c.y + 1) * TS + 34, false);
+      small('склад ' + c.wood + '/' + CSTORE + ' · дома ' + n, (c.x + 1) * TS, (c.y + 1) * TS + 52);
+    });
+    sites.forEach(drawSiteLabel);
+  }
+
+  // ---------- отрисовка: карта-пергамент ----------
+  var mapC = document.createElement('canvas'), mapT = 0, fogM = document.createElement('canvas');
+  fogM.width = fogM.height = N;
+  function renderMap() {
+    mapC.width = canvas.width; mapC.height = canvas.height;
+    var c = mapC.getContext('2d'), S = Math.min(W - 20, H - 190), k = S / (N * TS), ox = (W - S) / 2, oy = Math.max(96, (H - S) / 2 - 10), ts = TS * k, x, y, i, q;
+    mapGeo = { k: k, ox: ox, oy: oy };
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var g = c.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
+    g.addColorStop(0, '#ecdcb4'); g.addColorStop(1, '#c9ad74');
+    c.fillStyle = g; c.fillRect(0, 0, W, H);
+    c.save(); c.beginPath(); c.rect(ox, oy, S, S); c.clip();
+    c.translate(ox, oy); c.scale(k, k); c.lineCap = 'round'; c.lineJoin = 'round';
+    c.fillStyle = 'rgba(170,140,90,.22)'; c.fill(P.H5);
+    c.fillStyle = 'rgba(140,160,90,.42)'; c.fill(P.F45);
+    c.fillStyle = 'rgba(215,180,80,.4)'; c.fill(P.W5);
+    c.fillStyle = INK; c.fill(P.L5); strokeP(c, P.L5, INK, 2.6 / k);
+    rivers.forEach(function (r) { strokeP(c, r.path, INK, 11 + 2.2 / k); });
+    c.setLineDash([4 / k, 3 / k]); roads.forEach(function (rd) { strokeP(c, rd.path, INK, 1.3 / k); }); c.setLineDash([]);
+    c.fillStyle = '#b9cfc6'; c.fill(P.L5);
+    rivers.forEach(function (r) { strokeP(c, r.path, '#b9cfc6', 11); });
+    strokeP(c, P.L7, 'rgba(90,61,34,.45)', 0.7 / k);
+    c.restore();
+    c.save(); c.beginPath(); c.rect(ox, oy, S, S); c.clip();
+    c.strokeStyle = INK; c.lineWidth = 0.9; c.lineJoin = 'round';
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      i = idx(x, y); if (!known(i)) continue;
+      var px = ox + (x + 0.5) * ts, py = oy + (y + 0.5) * ts, b = biome[i];
+      if (b === FOREST && trees[i] > 0) {
+        var jx = (hash(x + 61, y) - 0.5) * ts * 0.4;
+        c.fillStyle = '#c9cf9a'; c.beginPath(); c.moveTo(px + jx - ts * 0.34, py + ts * 0.3); c.lineTo(px + jx, py - ts * 0.5); c.lineTo(px + jx + ts * 0.34, py + ts * 0.3); c.closePath(); c.fill(); c.stroke();
+      } else if (b === HILLS && (x + y) % 2 === 0) {
+        c.fillStyle = '#e3d2a6'; c.beginPath(); c.moveTo(px - ts * 0.6, py + ts * 0.3); c.quadraticCurveTo(px, py - ts * 0.9, px + ts * 0.6, py + ts * 0.3); c.fill(); c.stroke();
+      }
+      if (bridge[i]) { c.fillStyle = '#ecdcb4'; c.fillRect(px - ts * 0.45, py - ts * 0.3, ts * 0.9, ts * 0.6); c.strokeRect(px - ts * 0.45, py - ts * 0.3, ts * 0.9, ts * 0.6); }
+    }
+    sites.forEach(function (s) { if (s.type === 'upgrade') return; var w = (big(s) ? 2 : 1) * ts; c.setLineDash([2, 2]); c.strokeStyle = '#b8322a'; c.strokeRect(ox + s.x * ts, oy + s.y * ts, w, w); c.setLineDash([]); c.strokeStyle = INK; });
+    // туман = чистый пергамент
+    var fm = fogM.getContext('2d'), im = fm.createImageData(N, N);
+    for (i = 0; i < N * N; i++) { im.data[i * 4] = 230; im.data[i * 4 + 1] = 213; im.data[i * 4 + 2] = 170; im.data[i * 4 + 3] = known(i) ? 0 : 255; }
+    fm.putImageData(im, 0, 0);
+    c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high'; c.drawImage(fogM, ox, oy, S, S);
+    var textDone = false;
+    for (y = 0; y < N; y += 8) for (x = 0; x < N; x += 8) {
+      var all = true;
+      for (q = 0; q < 64; q++) if (known(idx(x + q % 8, y + ((q / 8) | 0)))) { all = false; break; }
+      if (!all) continue;
+      var cxp = ox + (x + 2 + hash(x, y + 5) * 3) * ts, cyp = oy + (y + 3 + hash(x + 5, y) * 3) * ts, sc = 0.8 + hash(x + 2, y + 2) * 0.5;
+      c.save(); c.translate(cxp, cyp); c.scale(sc, sc); c.strokeStyle = 'rgba(90,61,34,.7)'; c.lineWidth = 1.1;
+      c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(-9, -2, -6, -10); c.quadraticCurveTo(-3, -18, 6, -15); c.quadraticCurveTo(10, -25, 21, -21);
+      c.quadraticCurveTo(30, -27, 36, -18); c.quadraticCurveTo(47, -18, 45, -8); c.quadraticCurveTo(43, 0, 33, 0); c.closePath(); c.stroke(); c.restore();
+      if (!textDone && hash(x + 9, y + 9) < 0.35) {
+        textDone = true; c.save(); c.translate(cxp + 6, cyp + 26); c.rotate(-0.25);
+        c.font = 'italic 14px Georgia, "Times New Roman", serif'; c.fillStyle = 'rgba(90,61,34,.85)'; c.textAlign = 'center'; c.fillText('неведомыя земли', 10, 0); c.restore();
+      }
+    }
+    c.font = 'italic 11px Georgia, "Times New Roman", serif'; c.textAlign = 'center'; c.textBaseline = 'top';
+    camps.forEach(function (cm) {
+      var px = ox + (cm.x + 1) * ts, py = oy + (cm.y + 1) * ts;
+      c.fillStyle = '#e3d2a6'; c.strokeStyle = INK; c.lineWidth = 1.2; c.beginPath(); c.arc(px, py, 7, 0, 6.3); c.fill(); c.stroke();
+      c.setLineDash([1.5, 1.5]); c.beginPath(); c.arc(px, py, 7, 0, 6.3); c.stroke(); c.setLineDash([]);
+      c.fillStyle = '#b8322a'; c.fillRect(px, py - 12, 7, 5); c.beginPath(); c.moveTo(px, py); c.lineTo(px, py - 12); c.stroke();
+    });
+    villages.forEach(function (v) {
+      if (!known(idx(v.x, v.y))) return;
+      var px = ox + (v.x + 0.5) * ts, py = oy + (v.y + 0.5) * ts;
+      c.fillStyle = '#e3d2a6'; c.strokeStyle = INK; c.lineWidth = 1.2;
+      c.beginPath(); c.rect(px - 5, py - 3, 10, 7); c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(px - 7, py - 3); c.lineTo(px, py - 10); c.lineTo(px + 7, py - 3); c.closePath(); c.fill(); c.stroke();
+      if (v.claimed) { c.beginPath(); c.moveTo(px + 7, py + 4); c.lineTo(px + 7, py - 15); c.stroke(); c.fillStyle = '#b8322a'; c.fillRect(px + 7, py - 15, 8, 6); }
+      c.fillStyle = INK; c.fillText(v.name, px, py + 8); c.font = 'italic 9px Georgia, "Times New Roman", serif'; c.fillText(TNAME[v.type] + (v.type2 ? ' + ' + TNAME[v.type2] : ''), px, py + 20); c.font = 'italic 11px Georgia, "Times New Roman", serif';
+    });
+    var hx = ox + hero.x * ts, hy = oy + hero.y * ts;
+    c.fillStyle = '#b8322a'; c.strokeStyle = '#fff6dc'; c.lineWidth = 2; c.beginPath(); c.arc(hx, hy, 5, 0, 6.3); c.fill(); c.stroke();
+    c.restore();
+    c.strokeStyle = INK; c.lineWidth = 2.2; c.strokeRect(ox - 4, oy - 4, S + 8, S + 8); c.lineWidth = 0.8; c.strokeRect(ox, oy, S, S);
+    c.font = '22px "Ruslan Display", Georgia, serif'; c.fillStyle = '#8f1d14'; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+    c.fillText('Карта земель', W / 2, oy - 16);
+    c.font = 'italic 13px Georgia, "Times New Roman", serif'; c.fillStyle = INK;
+    c.fillText('Коснись открытого места — богатырь поедет туда', W / 2, oy + S + 26);
+  }
+
+  // ---------- цикл ----------
+  function updateHud() {
+    var cl = 0; villages.forEach(function (v) { if (v.claimed) cl++; });
+    var wood = 0; piles.forEach(function (p) { wood += p.count; }); camps.forEach(function (c) { wood += c.wood; }); villages.forEach(function (v) { wood += v.wood; });
+    document.getElementById('h-v').textContent = cl + '/' + villages.length;
+    document.getElementById('h-h').innerHTML = helpers.length ? 'Лесорубы <b>' + countSkill('chop') + '</b> · нос. <b>' + countSkill('haul') + '</b> · стр. <b>' + countSkill('build') + '</b>' : 'Людей нет';
+    document.getElementById('h-w').textContent = wood;
+  }
+  var last = 0, hudT = 0, saveT = 0;
+  function frame(tms) {
+    var dt = Math.min(0.05, (tms - last) / 1000 || 0) * G.speed; last = tms; now += dt;
+    var steps = Math.max(1, Math.ceil(dt / 0.05));
+    for (var s = 0; s < steps; s++) { stepHero(dt / steps); stepHelpers(dt / steps); }
+    for (var i = 0; i < N * N; i++) if (fogA[i] > fogT[i]) fogA[i] = Math.max(fogT[i], fogA[i] - dt * 1.6);
+    if (view === 'world') drawWorld(tms / 1000);
+    else {
+      mapT -= dt;
+      if (mapT <= 0) { renderMap(); mapT = 0.7; }
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(mapC, 0, 0);
+    }
+    hudT += dt; saveT += dt;
+    if (dirtyHud && hudT > 0.2) { updateHud(); hudT = 0; dirtyHud = false; }
+    if (saveT > 3 && saveDirty) { save(); saveT = 0; saveDirty = false; }
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  if (!load()) newGame((Math.random() * 1e9) | 0); else tip('');
+  reveal(hero.x, hero.y, REVEAL);
+  for (var i0 = 0; i0 < N * N; i0++) fogA[i0] = fogT[i0];
+  updateHud();
+  G.s = function () { return { fires: fires, hero: hero, villages: villages, helpers: helpers, orders: orders, sites: sites, piles: piles, camps: camps, biome: biome, trees: trees, bridge: bridge, fogT: fogT, rivers: rivers }; };
+  G.go = function (x, y) { target = { x: x, y: y, t: performance.now() }; heroPath(); };
+  G.order = function (m, x, y) { var o = mode; mode = m; order(x + 0.5, y + 0.5); mode = o; };
+  G.build = function (t, x, y) { return placeSite(t, x, y); };
+  G.revealAll = function () { fogT.fill(0); };
+  G.fire = function (i) { fires.set(i, { t: FIRE_T, gen: 0 }); };
+  G.claimAll = function () { villages.forEach(function (v, vi) { if (!v.claimed) { v.claimed = true; addHelper(vi); addHelper(vi); } }); };
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { mapT = 0; });
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
