@@ -17,7 +17,17 @@
             margin: 0 0 1px; color: #8f1d14; }
   #hud b { font-weight: 700; }
   button { font: inherit; color: #3a2a17; -webkit-tap-highlight-color: transparent; }
-  #toggle { top: 10px; right: 10px; padding: 0 14px; height: 46px; font-weight: 700; font-size: 14px; }
+  #topr { position: fixed; top: 10px; right: 10px; display: flex; gap: 8px; }
+  #topr button { position: static; height: 46px; font-weight: 700; font-size: 14px; }
+  #toggle { padding: 0 14px; }
+  #gear { width: 46px; padding: 0; display: flex; align-items: center; justify-content: center; }
+  #settings { left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 16px; width: min(320px, 86vw); display: none; z-index: 6; font-size: 14px; }
+  #settings h2 { font-family: "Ruslan Display", Georgia, serif; font-weight: 400; color: #8f1d14; font-size: 20px; margin: 0 0 12px; text-align: center; }
+  #settings .lbl { font-weight: 700; margin-bottom: 6px; }
+  #settings .seg { display: flex; gap: 8px; margin-bottom: 14px; }
+  #settings button { position: static; flex: 1; height: 46px; font-weight: 700; font-size: 14px; }
+  #settings .seg button.on { background: #8f1d14; color: #fff; border-color: #5c120c; }
+  #settings #st-close { width: 100%; }
   #bar { position: fixed; left: 8px; right: 8px; bottom: 14px; display: flex; gap: 8px; }
   #bar { gap: 6px; }
   #bar button { position: static; flex: 1; height: 52px; font-size: 13px; font-weight: 700; padding: 0 2px; }
@@ -36,6 +46,7 @@
   #newgame { left: 50%; bottom: 18px; transform: translateX(-50%); padding: 0 16px; height: 46px;
              font-size: 13px; font-weight: 600; display: none; }
   body.map #bar, body.map #tip, body.map #choose, body.map #confirm { display: none !important; }
+  body.parch { background: #e8d8b0; }
   #confirm { left: 8px; right: 8px; bottom: 76px; padding: 10px; display: none; font-size: 14px; text-align: center; }
   #confirm .row { display: flex; gap: 8px; margin-top: 8px; }
   #confirm button { position: static; flex: 1; height: 46px; font-weight: 700; font-size: 14px; }
@@ -51,7 +62,16 @@
   <div id="h-h">Людей нет</div>
   <div>Дрова: <b id="h-w">0</b></div>
 </div>
-<button id="toggle" class="panel">Карта</button>
+<div id="topr">
+  <button id="gear" class="panel" aria-label="Настройки"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3a2a17" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></button>
+  <button id="toggle" class="panel">Карта</button>
+</div>
+<div id="settings" class="panel">
+  <h2>Настройки</h2>
+  <div class="lbl">Вид мира</div>
+  <div class="seg"><button class="panel" data-style="color">Цветной</button><button class="panel" data-style="parch">Старинная карта</button></div>
+  <button class="panel" id="st-close">Закрыть</button>
+</div>
 <div id="toast" class="panel"></div>
 <div id="tip" class="panel">Коснись земли — богатырь поедет. Заедь в посёлок, чтобы поставить флаг.</div>
 <div id="bar">
@@ -75,18 +95,28 @@
   var REGROW_T = 45, GROW_T = 25, ROT_T = 60, ROT_STEP = 15, FIRE_T = 8, FIRE_CHANCE = 0.004;
   var TNAME = { chop: 'лесорубы', haul: 'носильщики', build: 'строители' };
   var VNAMES = ['Берёзовка', 'Заречье', 'Дубки', 'Каменка', 'Лебяжье', 'Ольховка', 'Сосновка'];
-  var KEY = 'bogatyr-proto-v3';
+  var KEY = 'bogatyr-proto-v4';
   var INK = '#5a3d22';
 
   var canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
   var W, H, dpr;
-  var seed, biome, elev, road, bridge, trees, cleared, regrow, fogT, fogA;
+  var seed, biome, elev, road, bridge, trees, cleared, regrow, fogT, fogA, rvis = new Map();
   var rivers, roads, villages, helpers, orders, sites, piles, camps, blotches;
   var hero, target, P = {}, chunks = new Map(), CH = 384, fires = new Map(), warned = {}, plan = null, heroTap = false, campMask;
   var view = 'world', mode = null, now = 0, dirtyHud = true, saveDirty = false;
   var fogC = document.createElement('canvas'), fctx, fogImg;
   fogC.width = N; fogC.height = N; fctx = fogC.getContext('2d'); fogImg = fctx.createImageData(N, N);
   var G = window.G = { speed: 1 };
+  var style = 'color';
+  try { style = localStorage.getItem('bogatyr-style') || 'color'; } catch (e) {}
+  function setStyle(st) {
+    style = st === 'parch' ? 'parch' : 'color';
+    try { localStorage.setItem('bogatyr-style', style); } catch (e) {}
+    chunks.clear(); sprites = {};
+    canvas.style.filter = style === 'parch' ? 'sepia(.28) saturate(.85)' : '';
+    document.body.classList.toggle('parch', style === 'parch');
+    Array.prototype.forEach.call(document.querySelectorAll('#settings .seg button'), function (b) { b.classList.toggle('on', b.dataset.style === style); });
+  }
 
   // ---------- утилиты ----------
   function hash(x, y) {
@@ -118,7 +148,8 @@
   function jit(x, y) { return [(hash(x + 900, y + 901) - 0.5) * 0.44, (hash(x + 902, y + 903) - 0.5) * 0.44]; }
   function wp(x, y) {
     var i = idx(x, y);
-    if (road[i] || bridge[i] || biome[i] === RIVER) { var j = jit(x, y); return [x + 0.5 + j[0], y + 0.5 + j[1]]; }
+    if (biome[i] === RIVER && rvis.has(i)) { var v = rvis.get(i); return [v[0], v[1]]; }
+    if (road[i]) { var j = jit(x, y); return [x + 0.5 + j[0], y + 0.5 + j[1]]; }
     return [x + 0.5, y + 0.5];
   }
 
@@ -151,7 +182,7 @@
         if (closed[ni]) continue;
         var isGoal = goalAlways && ni === goal;
         if (!pass(ni) && !isGoal) continue;
-        if (k >= 4 && (!pass(idx(nx, cy)) || !pass(idx(cx, ny)) || isGoal && !pass(ni))) continue;
+        if (k >= 4 && !(bridge && (bridge[cur] || bridge[ni])) && (!pass(idx(nx, cy)) || !pass(idx(cx, ny)) || isGoal && !pass(ni))) continue;
         var ng = gS[cur] + cost(ni, cur) * (k >= 4 ? 1.414 : 1);
         if (ng < gS[ni]) { gS[ni] = ng; came[ni] = cur; open.push(ni); }
       }
@@ -161,6 +192,34 @@
     var out = [];
     while (end !== start && end >= 0) { out.push([end % N, (end / N) | 0]); end = came[end]; }
     return out.reverse();
+  }
+
+  // ---------- реки: плавная кривая и клетки под ней ----------
+  function smoothCurve(skel) {
+    var raw = skel.map(function (i) { return [i % N + 0.5, ((i / N) | 0) + 0.5]; });
+    var pts = raw.map(function (p, k) {
+      if (k === 0 || k === raw.length - 1) return p;
+      var sx = 0, sy = 0, n = 0;
+      for (var q = Math.max(0, k - 2); q <= Math.min(raw.length - 1, k + 2); q++) { sx += raw[q][0]; sy += raw[q][1]; n++; }
+      return [sx / n, sy / n];
+    });
+    return cr(pts.filter(function (p, k) { return k % 2 === 0 || k === pts.length - 1; }), 10);
+  }
+  function rasterize(curve) {
+    var out = [], seenT = {}, prev = null;
+    function add(tx, ty) { if (!inb(tx, ty)) return; var i = idx(tx, ty); if (!seenT[i]) { seenT[i] = 1; out.push(i); } }
+    for (var k = 1; k < curve.length; k++) {
+      var a = curve[k - 1], b = curve[k], steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.1));
+      for (var q = 0; q <= steps; q++) {
+        var px = a[0] + (b[0] - a[0]) * q / steps, py = a[1] + (b[1] - a[1]) * q / steps, tx = Math.floor(px), ty = Math.floor(py);
+        if (prev && tx !== prev[0] && ty !== prev[1]) {
+          var d1 = Math.hypot(tx + 0.5 - px, prev[1] + 0.5 - py), d2 = Math.hypot(prev[0] + 0.5 - px, ty + 0.5 - py);
+          if (d1 < d2) add(tx, prev[1]); else add(prev[0], ty);
+        }
+        add(tx, ty); prev = [tx, ty];
+      }
+    }
+    return out;
   }
 
   // ---------- генерация ----------
@@ -203,11 +262,12 @@
         if (cx === 0 || cy === 0 || cx === N - 1 || cy === N - 1) { ok = true; break; }
       }
       if (ok && path.length > 6) {
-        var near = false;
-        for (k = 0; k < path.length; k++) if (Math.hypot(path[k] % N - c, ((path[k] / N) | 0) - c) < 2.5) near = true;
+        var skel = [idx(sx, sy)].concat(path); if (endI >= 0) skel.push(endI);
+        var curve = smoothCurve(skel), rt = rasterize(curve), near = false;
+        for (k = 0; k < rt.length; k++) if (Math.hypot(rt[k] % N + 0.5 - c, ((rt[k] / N) | 0) + 0.5 - c) < 3) near = true;
         if (near) continue;
-        for (k = 0; k < path.length; k++) biome[path[k]] = RIVER;
-        rivers.push({ src: idx(sx, sy), tiles: path, end: endI });
+        for (k = 0; k < rt.length; k++) if (biome[rt[k]] !== LAKE) biome[rt[k]] = RIVER;
+        rivers.push({ curve: curve, tiles: rt });
       }
     }
     for (i = 0; i < N * N; i++) trees[i] = biome[i] === FOREST ? 3 : 0;
@@ -354,7 +414,7 @@
     o.push(pts[pts.length - 1]);
     return o;
   }
-  function tilePt(i) { var x = i % N, y = (i / N) | 0, j = jit(x, y); return [(x + 0.5 + j[0]) * TS, (y + 0.5 + j[1]) * TS]; }
+  function tilePt(i) { if (rvis.has(i)) { var v = rvis.get(i); return [v[0] * TS, v[1] * TS]; } var x = i % N, y = (i / N) | 0, j = jit(x, y); return [(x + 0.5 + j[0]) * TS, (y + 0.5 + j[1]) * TS]; }
   function buildForest() {
     var f = mkField(function (i) { return biome[i] === FOREST && trees[i] > 0; });
     P.F45 = contour(f, 0.45); P.F6 = contour(f, 0.62);
@@ -366,17 +426,18 @@
     P.H5 = contour(h, 0.5); P.H8 = contour(h, 0.78); P.W5 = contour(w, 0.5);
     P.L5 = contour(l, 0.5); P.L7 = contour(l, 0.7); P.L9 = contour(l, 0.88);
     buildForest();
+    rvis = new Map();
     rivers.forEach(function (r) {
-      var raw = [r.src].concat(r.tiles); if (r.end >= 0) raw.push(r.end);
-      raw = raw.map(function (i) { return [(i % N + 0.5) * TS, (((i / N) | 0) + 0.5) * TS]; });
-      var pts = raw.map(function (p, k) {
-        if (k === 0 || k === raw.length - 1) return p;
-        var sx = 0, sy = 0, n = 0;
-        for (var q = Math.max(0, k - 2); q <= Math.min(raw.length - 1, k + 2); q++) { sx += raw[q][0]; sy += raw[q][1]; n++; }
-        return [sx / n, sy / n];
+      var cv = r.curve;
+      r.tiles.forEach(function (i) {
+        if (biome[i] !== RIVER) return;
+        var cx = i % N + 0.5, cy = ((i / N) | 0) + 0.5, bk = 0, bd = 1e9;
+        for (var q = 0; q < cv.length; q++) { var d = Math.hypot(cv[q][0] - cx, cv[q][1] - cy); if (d < bd) { bd = d; bk = q; } }
+        var a = cv[Math.max(0, bk - 1)], b = cv[Math.min(cv.length - 1, bk + 1)];
+        var vx = Math.max(cx - 0.45, Math.min(cx + 0.45, cv[bk][0])), vy = Math.max(cy - 0.45, Math.min(cy + 0.45, cv[bk][1]));
+        rvis.set(i, [vx, vy, Math.atan2(b[1] - a[1], b[0] - a[0])]);
       });
-      var thin = pts.filter(function (p, k) { return k % 2 === 0 || k === pts.length - 1; });
-      r.pts = cr(thin, 10);
+      r.pts = cv.map(function (p) { return [p[0] * TS, p[1] * TS]; });
       r.path = new Path2D();
       r.pts.forEach(function (p, k) { if (k) r.path.lineTo(p[0], p[1]); else r.path.moveTo(p[0], p[1]); });
     });
@@ -776,7 +837,15 @@
     sites.forEach(function (q) { if (q.type === 'camp' && Math.abs(q.x - x0) < 3 && Math.abs(q.y - y0) < 3) ok = false; });
     return ok;
   }
-  function bridgeOk(x, y) { var i = idx(x, y); return inb(x, y) && known(i) && biome[i] === RIVER && !bridge[i] && !siteAt(x, y); }
+  function shores(x, y) {
+    var ring = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]], land = ring.map(function (d) {
+      var nx = x + d[0], ny = y + d[1]; if (!inb(nx, ny)) return false;
+      var j = idx(nx, ny); return biome[j] !== LAKE && (biome[j] !== RIVER || bridge[j] === 1);
+    }), runs = 0;
+    for (var k = 0; k < 8; k++) if (land[k] && !land[(k + 7) % 8]) runs++;
+    return runs;
+  }
+  function bridgeOk(x, y) { var i = idx(x, y); return inb(x, y) && known(i) && biome[i] === RIVER && !bridge[i] && !siteAt(x, y) && shores(x, y) >= 2; }
   function placeSite(type, x, y) {
     if (type === 'camp' ? !campOk(x, y) : !bridgeOk(x, y)) return false;
     var st = { type: type, x: x, y: y, need: type === 'camp' ? CAMP_NEED : BRIDGE_NEED, delivered: 0, incoming: 0, builder: null, progress: 0, block: 0 };
@@ -847,7 +916,7 @@
         if (!campOk(cx0, cy0)) { toast('Для лагеря нужен свободный луг или поле 2×2: без дороги и не вплотную к посёлку'); return true; }
         plan = { type: 'camp', x: cx0, y: cy0 };
       } else {
-        if (!bridgeOk(x, y)) { toast('Мост строят на реке'); return true; }
+        if (!bridgeOk(x, y)) { toast(biome[i] === RIVER && !bridge[i] ? 'Отсюда мост не свяжет два берега' : 'Мост строят на реке'); return true; }
         plan = { type: 'bridge', x: x, y: y };
       }
       askPlan();
@@ -889,11 +958,18 @@
   });
   var TIPS = { upgrade: 'Коснись своего посёлка — за 10 дров он даст второй вид людей.', chop: 'Касайся леса — отметишь деревья для лесорубов, повторное касание снимает. Касание мимо леса ведёт богатыря.',
                camp: 'Коснись луга или поля — появится разметка лагеря 2×2. Касание по разметке стройки предложит её отменить.',
-               bridge: 'Коснись реки — нужно 5 дров, носильщики и строитель.' };
+               bridge: 'Кружками отмечены места, где мост свяжет берега. Нужно 5 дров, носильщики и строитель.' };
   Array.prototype.forEach.call(document.querySelectorAll('#bar button'), function (b) {
     b.addEventListener('click', function () {
       setMode(mode === b.dataset.mode ? null : b.dataset.mode);
     });
+  });
+  document.getElementById('gear').addEventListener('click', function () {
+    var el = document.getElementById('settings'); el.style.display = el.style.display === 'block' ? 'none' : 'block';
+  });
+  document.getElementById('st-close').addEventListener('click', function () { document.getElementById('settings').style.display = 'none'; });
+  Array.prototype.forEach.call(document.querySelectorAll('#settings .seg button'), function (b) {
+    b.addEventListener('click', function () { setStyle(b.dataset.style); });
   });
   document.getElementById('toggle').addEventListener('click', function () { setView(view === 'world' ? 'map' : 'world'); });
   function setView(v) {
@@ -948,22 +1024,34 @@
   function strokeP(c, p, col, w) { c.strokeStyle = col; c.lineWidth = w; c.stroke(p); }
   function renderChunk(cx, cy) {
     var cv = document.createElement('canvas'); cv.width = cv.height = Math.round(CH * dpr);
-    var c = cv.getContext('2d'), X0 = cx * CH, Y0 = cy * CH, k, x, y;
+    var c = cv.getContext('2d'), X0 = cx * CH, Y0 = cy * CH, k, x, y, pa = style === 'parch';
+    var PAPER = '#ead9b0', WATER = pa ? '#b9cfc6' : '#55a4da', SHORE = pa ? INK : '#ead9a0';
     c.scale(dpr, dpr); c.translate(-X0, -Y0);
     c.lineCap = 'round'; c.lineJoin = 'round';
-    c.fillStyle = '#86bd5d'; c.fillRect(X0, Y0, CH, CH);
+    c.fillStyle = pa ? PAPER : '#86bd5d'; c.fillRect(X0, Y0, CH, CH);
     blotches.forEach(function (b) {
       if (b[0] + b[2] < X0 || b[0] - b[2] > X0 + CH || b[1] + b[2] < Y0 || b[1] - b[2] > Y0 + CH) return;
-      c.fillStyle = b[3] ? 'rgba(141,196,100,.55)' : 'rgba(128,183,88,.55)';
+      c.fillStyle = pa ? (b[3] ? 'rgba(150,110,50,.06)' : 'rgba(255,250,235,.12)') : (b[3] ? 'rgba(141,196,100,.55)' : 'rgba(128,183,88,.55)');
       c.beginPath(); c.arc(b[0], b[1], b[2], 0, 6.3); c.fill();
     });
-    c.fillStyle = '#a3b672'; c.fill(P.H5); c.fillStyle = '#b0c080'; c.fill(P.H8);
-    c.fillStyle = '#74ad5a'; c.fill(P.F45); c.fillStyle = '#609b4b'; c.fill(P.F6);
-    c.fillStyle = '#dcc35c'; c.fill(P.W5); strokeP(c, P.W5, '#c6aa46', 2);
-    c.save(); c.clip(P.W5); c.strokeStyle = 'rgba(150,115,30,.3)'; c.lineWidth = 1.6; c.beginPath();
-    for (k = Math.floor((Y0 - CH) / 9); k < (Y0 + CH * 2) / 9; k++) { c.moveTo(X0 - 20, k * 9 + (X0 - 20) * -0.4); c.lineTo(X0 + CH + 20, k * 9 + (X0 + CH + 20) * -0.4); }
-    c.stroke(); c.restore();
-    c.fillStyle = '#ead9a0'; c.fill(P.L5); strokeP(c, P.L5, '#ead9a0', 11);
+    function hatch(path, col, w, dash) {
+      c.save(); c.clip(path); c.strokeStyle = col; c.lineWidth = w; if (dash) c.setLineDash(dash); c.beginPath();
+      for (k = Math.floor((Y0 - CH) / 9); k < (Y0 + CH * 2) / 9; k++) { c.moveTo(X0 - 20, k * 9 + (X0 - 20) * -0.4); c.lineTo(X0 + CH + 20, k * 9 + (X0 + CH + 20) * -0.4); }
+      c.stroke(); c.setLineDash([]); c.restore();
+    }
+    if (pa) {
+      c.fillStyle = 'rgba(170,140,90,.22)'; c.fill(P.H5);
+      c.fillStyle = 'rgba(140,160,90,.36)'; c.fill(P.F45);
+      c.fillStyle = 'rgba(215,180,80,.34)'; c.fill(P.W5);
+      hatch(P.W5, 'rgba(90,61,34,.55)', 0.9, [6, 3]);
+      c.setLineDash([3, 3]); strokeP(c, P.W5, 'rgba(90,61,34,.5)', 0.8); c.setLineDash([]);
+    } else {
+      c.fillStyle = '#a3b672'; c.fill(P.H5); c.fillStyle = '#b0c080'; c.fill(P.H8);
+      c.fillStyle = '#74ad5a'; c.fill(P.F45); c.fillStyle = '#609b4b'; c.fill(P.F6);
+      c.fillStyle = '#dcc35c'; c.fill(P.W5); strokeP(c, P.W5, '#c6aa46', 2);
+      hatch(P.W5, 'rgba(150,115,30,.3)', 1.6);
+    }
+    c.fillStyle = SHORE; c.fill(P.L5); strokeP(c, P.L5, SHORE, pa ? 3.2 : 11);
     function riverPass(col, extra) {
       rivers.forEach(function (r) {
         var n = r.pts.length; c.strokeStyle = col;
@@ -975,27 +1063,34 @@
         }
       });
     }
-    riverPass('#ead9a0', 7);
-    roads.forEach(function (rd) { strokeP(c, rd.path, '#a68352', 13); });
-    roads.forEach(function (rd) { strokeP(c, rd.path, '#d8ba86', 9.5); });
-    c.fillStyle = '#55a4da'; c.fill(P.L5); c.fillStyle = '#4b99d2'; c.fill(P.L7); c.fillStyle = '#4290ca'; c.fill(P.L9);
-    riverPass('#55a4da', 0);
-    rivers.forEach(function (r) { strokeP(c, r.path, 'rgba(205,236,255,.4)', 1.5); });
+    riverPass(SHORE, pa ? 3.4 : 7);
+    if (pa) {
+      c.setLineDash([7, 4]); roads.forEach(function (rd) { strokeP(c, rd.path, INK, 6); }); c.setLineDash([]);
+      roads.forEach(function (rd) { strokeP(c, rd.path, PAPER, 3.8); });
+    } else {
+      roads.forEach(function (rd) { strokeP(c, rd.path, '#a68352', 13); });
+      roads.forEach(function (rd) { strokeP(c, rd.path, '#d8ba86', 9.5); });
+    }
+    c.fillStyle = WATER; c.fill(P.L5);
+    if (pa) { strokeP(c, P.L7, 'rgba(90,61,34,.5)', 0.8); c.setLineDash([8, 5]); strokeP(c, P.L9, 'rgba(90,61,34,.35)', 0.7); c.setLineDash([]); }
+    else { c.fillStyle = '#4b99d2'; c.fill(P.L7); c.fillStyle = '#4290ca'; c.fill(P.L9); }
+    riverPass(WATER, 0);
+    if (!pa) rivers.forEach(function (r) { strokeP(c, r.path, 'rgba(205,236,255,.4)', 1.5); });
     var tx0 = Math.max(0, Math.floor(X0 / TS) - 1), tx1 = Math.min(N, Math.ceil((X0 + CH) / TS) + 1);
     var ty0 = Math.max(0, Math.floor(Y0 / TS) - 1), ty1 = Math.min(N, Math.ceil((Y0 + CH) / TS) + 1);
     for (y = ty0; y < ty1; y++) for (x = tx0; x < tx1; x++) {
       var i = idx(x, y), b = biome[i], px = x * TS, py = y * TS, h1 = hash(x * 3 + 1, y * 5 + 2);
-      if (b === LAKE && at(x - 1, y) === LAKE && at(x + 1, y) === LAKE && at(x, y - 1) === LAKE && at(x, y + 1) === LAKE && h1 < 0.6) {
+      if (b === LAKE && at(x - 1, y) === LAKE && at(x + 1, y) === LAKE && at(x, y - 1) === LAKE && at(x, y + 1) === LAKE && h1 < (pa ? 0.35 : 0.6)) {
         var wx = px + 8 + h1 * 20, wy = py + 10 + hash(y, x) * 20;
-        c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 1.5; c.beginPath();
+        c.strokeStyle = pa ? 'rgba(90,61,34,.8)' : 'rgba(255,255,255,.5)'; c.lineWidth = pa ? 1 : 1.5; c.beginPath();
         c.moveTo(wx, wy); c.quadraticCurveTo(wx + 4, wy - 3, wx + 8, wy); c.quadraticCurveTo(wx + 12, wy + 3, wx + 16, wy); c.stroke();
       }
       if (b === MEADOW && !road[i] && !cleared[i]) {
         if (h1 < 0.3) {
           var gx = px + 8 + hash(x, y + 77) * 24, gy = py + 12 + hash(x + 77, y) * 22;
-          c.strokeStyle = '#5c9443'; c.lineWidth = 1.6; c.beginPath();
+          c.strokeStyle = pa ? 'rgba(90,61,34,.6)' : '#5c9443'; c.lineWidth = pa ? 1 : 1.6; c.beginPath();
           c.moveTo(gx, gy); c.lineTo(gx - 3, gy - 7); c.moveTo(gx, gy); c.lineTo(gx, gy - 9); c.moveTo(gx, gy); c.lineTo(gx + 3, gy - 7); c.stroke();
-        } else if (h1 > 0.88) {
+        } else if (h1 > 0.88 && !pa) {
           for (k = 0; k < 4; k++) {
             c.fillStyle = ['#fff', '#ffd94a', '#e8544a'][(k + x) % 3];
             c.beginPath(); c.arc(px + 6 + hash(x + k, y + 41) * 28, py + 6 + hash(x + 41, y + k) * 28, 1.9, 0, 6.3); c.fill();
@@ -1004,6 +1099,7 @@
       }
       if (cleared[i]) for (k = 0; k < 3; k++) {
         var sx = px + 7 + hash(x + k * 17, y + 3) * 26, sy = py + 12 + hash(x + 5, y + k * 29) * 22;
+        if (pa) { c.fillStyle = '#e3d2a6'; c.strokeStyle = INK; c.lineWidth = 1; c.beginPath(); c.ellipse(sx, sy, 3.6, 2.4, 0, 0, 6.3); c.fill(); c.stroke(); continue; }
         c.fillStyle = '#7a5830'; c.beginPath(); c.ellipse(sx, sy, 4, 2.6, 0, 0, 6.3); c.fill();
         c.fillStyle = '#d8b98a'; c.beginPath(); c.ellipse(sx, sy - 1.5, 3.4, 2, 0, 0, 6.3); c.fill();
       }
@@ -1029,6 +1125,18 @@
   }
   function tri(c, x, y, w, h) { c.beginPath(); c.moveTo(x - w, y); c.lineTo(x, y - h); c.lineTo(x + w, y); c.closePath(); c.fill(); }
   function treeSprite(type) {
+    if (style === 'parch') return sprite('ptree' + type, 34, 44, function (c) {
+      c.scale(1.35, 1.35); c.strokeStyle = INK; c.lineWidth = 0.9; c.lineJoin = 'round'; c.lineCap = 'round'; c.fillStyle = '#d3d6a2';
+      c.beginPath(); c.moveTo(0, 0); c.lineTo(0, type ? -6 : -8); c.stroke();
+      if (type) {
+        c.beginPath(); c.moveTo(-7, -5); c.lineTo(0, -14); c.lineTo(7, -5); c.closePath(); c.fill(); c.stroke();
+        c.beginPath(); c.moveTo(-5.5, -12); c.lineTo(0, -21); c.lineTo(5.5, -12); c.closePath(); c.fill(); c.stroke();
+      } else {
+        c.beginPath(); c.moveTo(-7, -8); c.quadraticCurveTo(-11, -14, -5, -17); c.quadraticCurveTo(-4, -24, 3, -21);
+        c.quadraticCurveTo(10, -22, 9, -15); c.quadraticCurveTo(13, -10, 6, -8); c.closePath(); c.fill(); c.stroke();
+        c.lineWidth = 0.7; c.beginPath(); c.moveTo(2, -11); c.quadraticCurveTo(5, -12, 6, -15); c.stroke();
+      }
+    });
     return sprite('tree' + type, 30, 44, function (c) {
       c.fillStyle = 'rgba(20,50,20,.22)'; c.beginPath(); c.ellipse(0, 0, 10, 3.8, 0, 0, 6.3); c.fill();
       c.fillStyle = '#6b4a2a'; c.fillRect(-1.6, -9, 3.2, 9);
@@ -1122,10 +1230,8 @@
     if (p.count > 1) { ctx.font = '700 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(247,236,208,.9)'; ctx.strokeText(p.count, x + 2, y - 13); ctx.fillStyle = '#3a2a17'; ctx.fillText(p.count, x + 2, y - 13); }
   }
   function drawBridge(x, y, ghost) {
-    var j = jit(x, y), px = (x + 0.5 + j[0]) * TS, py = (y + 0.5 + j[1]) * TS, k;
-    var hR = isWater(x - 1, y) || isWater(x + 1, y), vR = isWater(x, y - 1) || isWater(x, y + 1);
-    var rot = hR && !vR ? Math.PI / 2 : (!hR && vR ? 0 : (isWater(x - 1, y) ? Math.PI / 2 : 0));
-    ctx.save(); ctx.translate(px, py); ctx.rotate(rot); ctx.globalAlpha = ghost ? 0.45 : 1;
+    var v = rvis.get(idx(x, y)) || [x + 0.5, y + 0.5, Math.PI / 2], k;
+    ctx.save(); ctx.translate(v[0] * TS, v[1] * TS); ctx.rotate(v[2] + Math.PI / 2); ctx.globalAlpha = ghost ? 0.45 : 1;
     ctx.fillStyle = '#b98b4e'; ctx.strokeStyle = '#7a5830'; ctx.lineWidth = 1.2;
     ctx.fillRect(-22, -9, 44, 18); ctx.strokeRect(-22, -9, 44, 18);
     ctx.strokeStyle = 'rgba(90,60,25,.5)'; ctx.lineWidth = 1; ctx.beginPath();
@@ -1246,6 +1352,13 @@
     ctx.restore();
   }
   function mound(x, y, w, h, fill) {
+    if (style === 'parch') {
+      ctx.fillStyle = '#e8d8ae'; ctx.strokeStyle = INK; ctx.lineWidth = 1.2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x - w, y); ctx.quadraticCurveTo(x, y - h * 1.6, x + w, y); ctx.fill(); ctx.stroke();
+      ctx.lineWidth = 0.8; ctx.beginPath();
+      for (var j = 1; j < 4; j++) { ctx.moveTo(x + w * 0.25 * j, y - h * 0.75 + j * h * 0.2); ctx.lineTo(x + w * 0.25 * j + 3, y - 1); }
+      ctx.stroke(); return;
+    }
     ctx.fillStyle = fill; ctx.beginPath(); ctx.moveTo(x - w, y);
     ctx.bezierCurveTo(x - w * 0.5, y - h * 1.3, x + w * 0.5, y - h * 1.3, x + w, y); ctx.closePath(); ctx.fill();
     ctx.strokeStyle = 'rgba(60,75,35,.45)'; ctx.lineWidth = 1.2; ctx.stroke();
@@ -1265,8 +1378,8 @@
     } else if (b === FIELD && hash(x * 3 + 1, y * 5 + 2) < 0.06 && !road[i]) {
       var sx = px + TS / 2, sy = py + TS * 0.75;
       ctx.fillStyle = 'rgba(80,60,10,.2)'; ctx.beginPath(); ctx.ellipse(sx, sy, 12, 4, 0, 0, 6.3); ctx.fill();
-      ctx.fillStyle = '#c9a23c'; ctx.beginPath(); ctx.moveTo(sx - 10, sy); ctx.bezierCurveTo(sx - 9, sy - 20, sx + 9, sy - 20, sx + 10, sy); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = '#a07d28'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = style === 'parch' ? '#e8d8ae' : '#c9a23c'; ctx.beginPath(); ctx.moveTo(sx - 10, sy); ctx.bezierCurveTo(sx - 9, sy - 20, sx + 9, sy - 20, sx + 10, sy); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = style === 'parch' ? INK : '#a07d28'; ctx.lineWidth = 1; ctx.stroke();
     }
   }
   function drawFog(t, x0, y0, x1, y1) {
@@ -1275,11 +1388,26 @@
       var i = idx(x, y), a = fogA[i], o = i * 4;
       if (a <= 0.001) { d[o + 3] = 0; continue; }
       var l = 12 * (Math.sin(x * 0.55 + t * 0.35) * Math.cos(y * 0.5 - t * 0.27) + Math.sin((x + y) * 0.23 + t * 0.2));
-      d[o] = 190 + l; d[o + 1] = 198 + l; d[o + 2] = 208 + l; d[o + 3] = a * 255;
+      if (style === 'parch') { d[o] = 232 + l * 0.3; d[o + 1] = 217 + l * 0.3; d[o + 2] = 178 + l * 0.3; }
+      else { d[o] = 190 + l; d[o + 1] = 198 + l; d[o + 2] = 208 + l; }
+      d[o + 3] = a * 255;
     }
     fctx.putImageData(fogImg, 0, 0);
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(fogC, x0, y0, x1 - x0, y1 - y0, x0 * TS, y0 * TS, (x1 - x0) * TS, (y1 - y0) * TS);
+    if (style !== 'parch') return;
+    // облака-завитки над неведомыми землями
+    for (var by = Math.floor(y0 / 4) * 4; by < y1; by += 4) for (var bx = Math.floor(x0 / 4) * 4; bx < x1; bx += 4) {
+      var all = true;
+      for (var q = 0; q < 16 && all; q++) { var qx = bx + q % 4, qy = by + ((q / 4) | 0); if (inb(qx, qy) && fogA[idx(qx, qy)] < 0.9) all = false; }
+      if (!all || hash(bx + 11, by + 7) < 0.35) continue;
+      var cxp = (bx + 0.6 + hash(bx, by + 5) * 2) * TS, cyp = (by + 1.8 + hash(bx + 5, by) * 1.6) * TS, sc = 1.2 + hash(bx + 2, by + 2) * 0.6;
+      ctx.save(); ctx.translate(cxp, cyp); ctx.scale(sc, sc); ctx.strokeStyle = 'rgba(90,61,34,.65)'; ctx.lineWidth = 1.1 / sc; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(-9, -2, -6, -10); ctx.quadraticCurveTo(-3, -18, 6, -15); ctx.quadraticCurveTo(10, -25, 21, -21);
+      ctx.quadraticCurveTo(30, -27, 36, -18); ctx.quadraticCurveTo(47, -18, 45, -8); ctx.quadraticCurveTo(43, 0, 33, 0); ctx.closePath(); ctx.stroke();
+      ctx.lineWidth = 0.8 / sc; ctx.beginPath(); ctx.moveTo(8, -6); ctx.quadraticCurveTo(13, -10, 17, -6); ctx.moveTo(22, -9); ctx.quadraticCurveTo(27, -12, 30, -8); ctx.stroke();
+      ctx.restore();
+    }
   }
   function drawWorld(t) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1287,7 +1415,7 @@
     camx = W >= mw ? (mw - W) / 2 : Math.max(0, Math.min(mw - W, hero.x * TS - W / 2));
     camy = H >= mw ? (mw - H) / 2 : Math.max(0, Math.min(mw - H, hero.y * TS - H / 2));
     var ox = Math.round(camx * dpr) / dpr, oy = Math.round(camy * dpr) / dpr;
-    ctx.fillStyle = '#b9c2cc'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = style === 'parch' ? '#e8d8b0' : '#b9c2cc'; ctx.fillRect(0, 0, W, H);
     ctx.translate(-ox, -oy);
     for (var cy = Math.max(0, Math.floor(camy / CH)); cy * CH < Math.min(mw, camy + H); cy++)
       for (var cx = Math.max(0, Math.floor(camx / CH)); cx * CH < Math.min(mw, camx + W); cx++)
@@ -1296,6 +1424,14 @@
     var y0 = Math.max(0, Math.floor(camy / TS) - 1), y1 = Math.min(N, Math.ceil((camy + H) / TS) + 2);
     for (y = y0; y < y1; y++) for (x = x0; x < x1; x++) if (bridge[idx(x, y)]) drawBridge(x, y, false);
     sites.forEach(drawSite);
+    if (mode === 'bridge' && !plan) {
+      ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(255,250,230,.95)'; ctx.lineWidth = 2;
+      for (y = y0; y < y1; y++) for (x = x0; x < x1; x++) if (biome[idx(x, y)] === RIVER && bridgeOk(x, y)) {
+        var bv = rvis.get(idx(x, y)) || [x + 0.5, y + 0.5];
+        ctx.beginPath(); ctx.arc(bv[0] * TS, bv[1] * TS, 9 + Math.sin(t * 4) * 1.5, 0, 6.3); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
     drawPlan(t);
     if (target && !mode) {
       var age = (performance.now() - target.t) / 1000, r = 7 + Math.sin(age * 6) * 2;
@@ -1440,6 +1576,7 @@
   }
 
   resize();
+  setStyle(style);
   if (!load()) newGame((Math.random() * 1e9) | 0); else tip('');
   reveal(hero.x, hero.y, REVEAL);
   for (var i0 = 0; i0 < N * N; i0++) fogA[i0] = fogT[i0];
